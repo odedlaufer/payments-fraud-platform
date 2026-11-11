@@ -6,7 +6,7 @@ Local, self-hosted platform built entirely on free tools: a simulated payments a
 
 ## Requirements
 
-- Docker + Docker Compose, 16 GB RAM
+- Docker Desktop with 8 GB memory allocated (the default on a 16 GB machine)
 - [uv](https://docs.astral.sh/uv/) and GNU Make
 
 ## Quick start
