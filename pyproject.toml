@@ -25,6 +25,7 @@ dev = [
     "types-pyyaml==6.0.12.20241230",
     "psycopg[binary]==3.3.6",
     "confluent-kafka[avro,schemaregistry]==2.16.0",
+    "trino==0.340.0",
 ]
 
 [tool.ruff]
@@ -33,6 +34,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "RUF"]
+
+[tool.ruff.lint.isort]
+# trino/ in the repo is Trino server config, not the Python client.
+known-third-party = ["trino"]
+known-first-party = ["simulator", "cdc_reconcile"]
 
 [tool.mypy]
 python_version = "3.12"
