@@ -33,6 +33,8 @@ REQUIRED_FILES = [
     ".env.example",
     ".gitignore",
     ".pre-commit-config.yaml",
+    "docker-compose.yml",
+    "scripts/health.sh",
 ]
 
 
