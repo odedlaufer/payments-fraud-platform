@@ -44,6 +44,7 @@ REQUIRED_FILES = [
     "connect/connectors/payments-postgres.json",
     "postgres/roles.psql",
     "scripts/register-connectors.sh",
+    "scripts/cdc_reconcile.py",
 ]
 
 

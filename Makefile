@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src
+	uv run mypy tests simulator/src scripts
 
 test: ## Run unit tests
 	uv run pytest
@@ -89,3 +89,11 @@ seed: ## Insert simulator reference data (ARGS="--customers 2000 --merchants 300
 
 sim: ## Run the simulator in real time (SPEED=real min per sim day, TPS=tx per second, ARGS=...)
 	uv run simulator run --minutes-per-day $(or $(SPEED),10) --tps $(or $(TPS),20) $(ARGS)
+
+cdc-reconcile: ## Compare every Postgres table with its CDC topic, key by key
+	uv run python scripts/cdc_reconcile.py
+
+phase1-gate: ## Phase 1 gate: >=10,000 simulated transactions, then CDC must match Postgres exactly
+	@uv run simulator seed 2>/dev/null || echo "reference data already present"
+	uv run simulator run --fast --max-transactions 10000 --change-rate 5
+	uv run python scripts/cdc_reconcile.py

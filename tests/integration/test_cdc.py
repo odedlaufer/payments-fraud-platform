@@ -27,7 +27,7 @@ def registry_url(env: dict[str, str]) -> str:
 
 @pytest.fixture(scope="module")
 def bootstrap(env: dict[str, str]) -> str:
-    return f"localhost:{env.get('REDPANDA_KAFKA_PORT', '19092')}"
+    return f"127.0.0.1:{env.get('REDPANDA_KAFKA_PORT', '19092')}"
 
 
 def read_events(
