@@ -78,3 +78,10 @@ def test_catalog_db_is_not_the_oltp_source() -> None:
 
 def test_catalog_db_not_exposed_to_host() -> None:
     assert "ports" not in SERVICES["catalog-db"]
+
+
+@pytest.mark.parametrize("name", sorted(n for n, s in SERVICES.items() if "ports" in s))
+def test_ports_bound_to_localhost(name: str) -> None:
+    """Auth is off on local services, so nothing may listen on the LAN."""
+    for port in SERVICES[name]["ports"]:
+        assert str(port).startswith("127.0.0.1:"), f"{name}: {port} is exposed beyond localhost"
