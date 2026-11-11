@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: customers_current
+    description: One row per customer, latest committed state (FR-L1).
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: risk_tier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [low, medium, high]
+
+  - name: cards_current
+    description: One row per card, latest committed state.
+    columns:
+      - name: card_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [active, blocked, expired]
+
+  - name: merchants_current
+    description: One row per merchant; deleted merchants keep their last values with is_deleted.
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [active, suspended]
+
+  - name: sessions_current
+    description: One row per session.
+    columns:
+      - name: session_id
+        data_tests: [unique, not_null]
+
+  - name: transactions_current
+    description: One row per transaction, latest status.
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [pending, approved, declined, reversed]
+
+  - name: chargebacks_current
+    description: One row per chargeback.
+    columns:
+      - name: chargeback_id
+        data_tests: [unique, not_null]

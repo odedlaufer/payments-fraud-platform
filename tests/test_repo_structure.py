@@ -56,6 +56,10 @@ REQUIRED_FILES = [
     "flink/sql/bronze/bronze_cdc.sql",
     "scripts/bronze_reconcile.py",
     "chaos/ch1-bronze.sh",
+    "dbt/dbt_project.yml",
+    "dbt/profiles.yml",
+    "dbt/macros/current_state.sql",
+    "dbt/models/staging/_bronze__sources.yml",
 ]
 
 

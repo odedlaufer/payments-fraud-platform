@@ -1,0 +1,14 @@
+# Connection to the local Trino (no auth: bound to 127.0.0.1 only).
+payments:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      user: dbt
+      host: "{{ env_var('TRINO_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('TRINO_PORT', '8088') | int }}"
+      http_scheme: http
+      database: lake
+      schema: silver
+      threads: 2

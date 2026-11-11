@@ -80,3 +80,27 @@ def test_topic_patterns_match_exactly_their_topic() -> None:
         assert re.fullmatch(pattern, f"pg.public.{table}"), pattern
         assert not re.fullmatch(pattern, f"pgXpublicX{table}"), f"{pattern}: dot must be literal"
         assert not re.fullmatch(pattern, f"pg.public.{table}_v2"), pattern
+
+
+@pytest.mark.parametrize(
+    ("pg_type", "expected"),
+    [
+        (
+            "timestamp with time zone",
+            "cast(from_iso8601_timestamp_nanos(r.c) as timestamp(6) with time zone)",
+        ),
+        ("date", "date_add('day', r.c, date '1970-01-01')"),
+        ("bigint", "r.c"),
+        ("numeric", "r.c"),
+    ],
+)
+def test_staging_parses_debezium_types(pg_type: str, expected: str) -> None:
+    assert gen.Column("c", pg_type, 12, 2).staged("r") == expected
+
+
+def test_staging_models_generated_for_every_table() -> None:
+    for table in gen.TABLES:
+        model = (ROOT / f"dbt/models/staging/stg_cdc__{table}.sql").read_text()
+        assert f"source('bronze', 'cdc_{table}')" in model
+        assert "case when op = 'd' then before else after end" in model
+        assert "op = 'd' as is_deleted" in model

@@ -31,6 +31,7 @@ class Side:
     offsets: set[Offset] = field(default_factory=set)
     ops: Counter[str] = field(default_factory=Counter)
     rows: int = 0  # bronze row count, including any duplicates
+    end: dict[int, int] = field(default_factory=dict)  # topic: next offset per partition
 
 
 @dataclass
@@ -64,6 +65,7 @@ class BronzeReport:
 def topic_side(records: Any) -> Side:
     side = Side()
     for partition, offset, _key, value in records:
+        side.end[partition] = max(side.end.get(partition, 0), offset + 1)
         if value is None:  # tombstone: not stored in bronze
             continue
         side.offsets.add((partition, offset))
@@ -72,9 +74,16 @@ def topic_side(records: Any) -> Side:
     return side
 
 
-def bronze_side(cur: Any, table: str) -> Side:
+def bronze_side(cur: Any, table: str, end: dict[int, int]) -> Side:
+    """Bronze rows up to the topic snapshot's end offsets: a consistent point-in-time view,
+    so events Debezium emits after the snapshot cannot show up as `extra`."""
     side = Side()
-    cur.execute(f"select kafka_partition, kafka_offset, op from lake.bronze.cdc_{table}")
+    if not end:
+        return side
+    upto = " or ".join(f"(kafka_partition = {p} and kafka_offset < {o})" for p, o in end.items())
+    cur.execute(
+        f"select kafka_partition, kafka_offset, op from lake.bronze.cdc_{table} where {upto}"
+    )
     for partition, offset, op in cur.fetchall():
         side.rows += 1
         side.offsets.add((int(partition), int(offset)))
@@ -106,7 +115,9 @@ def main() -> int:
     deadline = time.monotonic() + args.timeout
     print(f"waiting for bronze to catch up (commits every 60s, up to {args.timeout:.0f}s)...")
     while True:
-        reports = [BronzeReport(t, expected[t], bronze_side(cur, t)) for t in TABLES]
+        reports = [
+            BronzeReport(t, expected[t], bronze_side(cur, t, expected[t].end)) for t in TABLES
+        ]
         caught_up = all(r.bronze.rows >= r.topic.rows for r in reports)
         if caught_up or time.monotonic() > deadline:
             break

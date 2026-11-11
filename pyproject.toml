@@ -27,6 +27,14 @@ dev = [
     "confluent-kafka[avro,schemaregistry]==2.16.0",
     "trino==0.340.0",
 ]
+# Transformations on Trino (PRD: dbt Core + dbt-trino).
+dbt = [
+    "dbt-core==1.12.6",
+    "dbt-trino==1.11.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "dbt"]
 
 [tool.ruff]
 line-length = 100

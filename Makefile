@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -115,3 +115,12 @@ bronze-reconcile: ## Every CDC event is in bronze exactly once (waits for the 60
 
 chaos-ch1-bronze: ## CH-1 (bronze): SIGKILL the TaskManager mid-run, then reconcile bronze
 	chaos/ch1-bronze.sh
+
+dbt-build: ## dbt: run all models and tests (staging views, silver MERGE)
+	cd dbt && uv run dbt build --profiles-dir .
+
+dbt-run: ## dbt: run models only
+	cd dbt && uv run dbt run --profiles-dir .
+
+dbt-test: ## dbt: run tests only
+	cd dbt && uv run dbt test --profiles-dir .
