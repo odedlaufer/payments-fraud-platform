@@ -38,6 +38,15 @@ warehouse_exists() {
     | grep -q "\"name\":\"$1\""
 }
 
+# Every migration file in postgres/migrations is recorded as applied.
+migrations_applied() {
+  local expected actual
+  expected=$(find postgres/migrations -name '*.sql' | wc -l | tr -d ' ')
+  actual=$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+    "select count(*) from schema_migrations" 2>/dev/null | tr -d ' ')
+  [[ "$actual" == "$expected" ]]
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -55,6 +64,7 @@ echo "Health check (profiles: ${PROFILES//,/ })"
 
 if has_profile core; then
   wait_for "postgres" docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+  wait_for "oltp-migrations" migrations_applied
   wait_for "redpanda" docker compose exec -T redpanda sh -c "rpk cluster health | grep -qE 'Healthy:.+true'"
   wait_for "schema-registry" http_ok "http://localhost:${REDPANDA_SCHEMA_REGISTRY_PORT}/subjects"
   wait_for "redpanda-console" http_ok "http://localhost:${REDPANDA_CONSOLE_PORT}/"

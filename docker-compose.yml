@@ -11,6 +11,18 @@ services:
     <<: *restart
     image: postgres:16.15
     profiles: [core]
+    # Logical decoding for Debezium (FR-CDC1). max_slot_wal_keep_size stops a
+    # stalled slot from filling the disk; DQ-02 alerts long before this limit.
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=4
+      - -c
+      - max_wal_senders=4
+      - -c
+      - max_slot_wal_keep_size=1GB
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
@@ -28,6 +40,25 @@ services:
       resources:
         limits:
           memory: 512m
+
+  # One-shot: applies versioned OLTP migrations (postgres/migrations), then exits 0.
+  postgres-migrate:
+    image: ghcr.io/amacneil/dbmate:2.37.0
+    profiles: [core]
+    command: ["--wait", "--migration-lock", "--no-dump-schema", "up", "--strict"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /migrations
+    volumes:
+      - ./postgres/migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
 
   redpanda:
     <<: *restart

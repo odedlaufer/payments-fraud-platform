@@ -17,6 +17,7 @@ dev = [
     "pytest-cov==6.0.0",
     "pyyaml==6.0.2",
     "types-pyyaml==6.0.12.20241230",
+    "psycopg[binary]==3.3.6",
 ]
 
 [tool.ruff]
@@ -33,4 +34,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not integration'"
+markers = ["integration: needs the running stack (make up)"]
