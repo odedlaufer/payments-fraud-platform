@@ -1,6 +1,8 @@
 [sqlfluff]
 dialect = trino
-templater = raw
+# Jinja with dbt builtins (ref, source, config, is_incremental) so dbt models lint;
+# plain SQL files are unaffected. dbt macros are loaded so models that call them render.
+templater = jinja
 max_line_length = 120
 exclude_rules = LT05
 
@@ -10,3 +12,7 @@ tab_space_size = 4
 
 [sqlfluff:rules:capitalisation.keywords]
 capitalisation_policy = lower
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+load_macros_from_path = dbt/macros

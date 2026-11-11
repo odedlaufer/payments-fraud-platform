@@ -60,3 +60,26 @@ def test_extra_offset_fails() -> None:
     report = br.BronzeReport("x", topic((0, 0, "c")), bronze((0, 0, "c"), (0, 5, "c")))
     assert report.extra == 1
     assert not report.ok
+
+
+def test_topic_side_records_end_offsets_including_tombstones() -> None:
+    side = topic((0, 0, "c"), (0, 1, "d"), (0, 2, None))
+    assert side.end == {0: 3}  # type: ignore[attr-defined]
+
+
+class FakeCursor:
+    def __init__(self) -> None:
+        self.sql = ""
+
+    def execute(self, sql: str) -> None:
+        self.sql = sql
+
+    def fetchall(self) -> list[tuple[int, int, str]]:
+        return [(0, 0, "c")]
+
+
+def test_bronze_is_read_only_up_to_the_topic_snapshot() -> None:
+    cur = FakeCursor()
+    br.bronze_side(cur, "transactions", {0: 42})
+    assert "kafka_partition = 0 and kafka_offset < 42" in cur.sql
+    assert br.bronze_side(FakeCursor(), "transactions", {}).rows == 0
