@@ -2,7 +2,7 @@
 
 Local, self-hosted platform built entirely on free tools: a simulated payments app writes to Postgres, Debezium streams every change, Flink computes real-time fraud features and decisions, and an Iceberg lakehouse keeps full history for SCD2, point-in-time training sets, feature parity checks and rule backtesting.
 
-> Status: Phase 0 complete — local stack up, lakehouse gate passing. Next: Phase 1, OLTP + CDC.
+> Status: Phase 1 complete: OLTP schema, Debezium CDC to Redpanda (Avro), simulator; CDC reconciles exactly against Postgres. Next: Phase 2, lakehouse bronze, silver and SCD2.
 
 ## Requirements
 
@@ -16,6 +16,9 @@ make setup   # dev deps, git hooks, .env
 make check   # lint, typecheck, tests
 make up      # start the stack and wait until healthy
 make gate    # Trino writes and reads an Iceberg table end to end
+make seed    # simulator reference data
+make sim     # simulated payments traffic (20 tx/s)
+make phase1-gate  # 10,000 transactions, then CDC must match Postgres exactly
 make down    # stop, keep data
 ```
 
