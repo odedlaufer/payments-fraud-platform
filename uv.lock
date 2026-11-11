@@ -2,6 +2,12 @@ version = 1
 revision = 5
 requires-python = "==3.12.*"
 
+[manifest]
+members = [
+    "payments-fraud-platform",
+    "payments-simulator",
+]
+
 [[package]]
 name = "anyio"
 version = "4.16.0"
@@ -302,6 +308,18 @@ wheels = [
 ]
 
 [[package]]
+name = "faker"
+version = "40.43.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/33/6c/b8793efc2f00a912ef17cf0b61b717cddf34607499efcb8a32238c119368/faker-40.43.0.tar.gz", hash = "sha256:02fae4327c03a4a6315e1b428a3878f435bfc276c93435ea349b95c0c9372361", size = 2032713, upload-time = "2026-10-09T20:06:29.652Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/ed/0d6d0d6467ae3d009fb82fb411867c7fcfeadbdd25602cab0d7a7963f400/faker-40.43.0-py3-none-any.whl", hash = "sha256:9dd7c0ddfaf30c842b05502d3cf641c135e0120a3a19047008ba8525b72953ed", size = 2069082, upload-time = "2026-10-09T20:06:27.166Z" },
+]
+
+[[package]]
 name = "fastavro"
 version = "1.13.1"
 source = { registry = "https://pypi.org/simple" }
@@ -506,6 +524,9 @@ wheels = [
 name = "payments-fraud-platform"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "payments-simulator" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -522,6 +543,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "payments-simulator", editable = "simulator" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -535,6 +557,21 @@ dev = [
     { name = "ruff", specifier = "==0.8.6" },
     { name = "sqlfluff", specifier = "==3.3.0" },
     { name = "types-pyyaml", specifier = "==6.0.12.20241230" },
+]
+
+[[package]]
+name = "payments-simulator"
+version = "0.1.0"
+source = { editable = "simulator" }
+dependencies = [
+    { name = "faker" },
+    { name = "psycopg", extra = ["binary"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "faker", specifier = "==40.43.0" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.6" },
 ]
 
 [[package]]

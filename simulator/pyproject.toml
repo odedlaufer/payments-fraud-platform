@@ -1,0 +1,19 @@
+[project]
+name = "payments-simulator"
+version = "0.1.0"
+description = "Synthetic payments app that writes to the OLTP Postgres (PRD 5.1)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faker==40.43.0",
+    "psycopg[binary]==3.3.6",
+]
+
+[project.scripts]
+simulator = "simulator.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "simulator"

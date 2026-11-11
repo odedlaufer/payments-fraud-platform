@@ -5,7 +5,13 @@ description = "Payments CDC lakehouse and real-time fraud feature platform"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["payments-simulator"]
+
+[tool.uv.workspace]
+members = ["simulator"]
+
+[tool.uv.sources]
+payments-simulator = { workspace = true }
 
 [dependency-groups]
 dev = [
