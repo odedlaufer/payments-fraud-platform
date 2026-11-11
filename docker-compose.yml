@@ -93,6 +93,28 @@ services:
         limits:
           memory: 1536m
 
+  # One-shot: sets service-account passwords from .env (postgres/roles.psql).
+  postgres-roles:
+    image: postgres:16.15
+    profiles: [core]
+    entrypoint: ["psql", "-q", "-f", "/roles.psql"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      DEBEZIUM_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD:?set in .env}
+    volumes:
+      - ./postgres/roles.psql:/roles.psql:ro
+    depends_on:
+      postgres-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
   # Kafka Connect worker running Debezium (FR-CDC2). Connectors are registered
   # separately; the worker stores configs, offsets and status in Redpanda.
   connect:
@@ -110,6 +132,11 @@ services:
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
       HEAP_OPTS: -Xms256m -Xmx512m
+      # Connector configs reference ${env:...}; secrets never enter the config topic.
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+      DEBEZIUM_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "127.0.0.1:${CONNECT_PORT:-8083}:8083"
     healthcheck:
@@ -121,12 +148,32 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
-      postgres-migrate:
+      postgres-roles:
         condition: service_completed_successfully
     deploy:
       resources:
         limits:
           memory: 1536m
+
+  # One-shot: registers connect/connectors/*.json and waits until RUNNING. Idempotent.
+  connect-init:
+    image: curlimages/curl:8.23.0
+    profiles: [core]
+    entrypoint: ["sh", "/register-connectors.sh"]
+    environment:
+      CONNECT_URL: http://connect:8083
+      CONNECTORS_DIR: /connectors
+    volumes:
+      - ./scripts/register-connectors.sh:/register-connectors.sh:ro
+      - ./connect/connectors:/connectors:ro
+    depends_on:
+      connect:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
 
   console:
     <<: *restart

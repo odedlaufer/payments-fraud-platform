@@ -41,6 +41,9 @@ REQUIRED_FILES = [
     "trino/etc/catalog/lake.properties",
     "postgres/.sqlfluff",
     "connect/Dockerfile",
+    "connect/connectors/payments-postgres.json",
+    "postgres/roles.psql",
+    "scripts/register-connectors.sh",
 ]
 
 

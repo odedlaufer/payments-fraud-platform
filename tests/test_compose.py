@@ -17,7 +17,9 @@ HEALTHCHECKED_EXTERNALLY = {"console"}
 EXPECTED_SERVICES = {
     "postgres",
     "postgres-migrate",
+    "postgres-roles",
     "connect",
+    "connect-init",
     "redpanda",
     "console",
     "seaweedfs",

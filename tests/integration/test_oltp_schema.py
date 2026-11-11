@@ -181,3 +181,23 @@ def test_sim_truth_label_matches_pattern(
     else:
         with pytest.raises(psycopg.errors.CheckViolation):
             oltp.execute(insert, (txn_id, is_fraud, pattern))
+
+
+def test_debezium_role_is_least_privilege(oltp: Conn, env: dict[str, str]) -> None:
+    """FR-CDC2: replication + read on published tables; no sim schema, no writes."""
+    attrs = oltp.execute(
+        "select rolreplication, rolcanlogin, rolsuper from pg_roles where rolname = 'debezium'"
+    ).fetchone()
+    assert attrs == (True, True, False)
+
+    dsn = (
+        f"host=localhost port={env.get('POSTGRES_PORT', '5432')} dbname={env['POSTGRES_DB']} "
+        f"user=debezium password={env['DEBEZIUM_DB_PASSWORD']}"
+    )
+    with psycopg.connect(dsn, connect_timeout=3) as dbz:
+        assert dbz.execute("select count(*) >= 0 from public.transactions").fetchone() == (True,)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            dbz.execute("select count(*) from sim.sim_truth")
+        dbz.rollback()
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            dbz.execute("delete from public.customers")

@@ -25,8 +25,12 @@ def _env() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def oltp_dsn() -> str:
-    env = _env()
+def env() -> dict[str, str]:
+    return _env()
+
+
+@pytest.fixture(scope="session")
+def oltp_dsn(env: dict[str, str]) -> str:
     return (
         f"host={env.get('POSTGRES_HOST', 'localhost')} "
         f"port={env.get('POSTGRES_PORT', '5432')} "
@@ -47,4 +51,14 @@ def oltp(oltp_dsn: str) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
         yield conn
     finally:
         conn.rollback()
+        conn.close()
+
+
+@pytest.fixture
+def oltp_autocommit(oltp_dsn: str) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
+    """A connection whose statements commit immediately (needed to produce CDC events)."""
+    conn = psycopg.connect(oltp_dsn, connect_timeout=3, autocommit=True)
+    try:
+        yield conn
+    finally:
         conn.close()
