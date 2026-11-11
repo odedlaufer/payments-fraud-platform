@@ -63,7 +63,12 @@ def test_long_running_has_healthcheck(name: str) -> None:
     assert "healthcheck" in SERVICES[name], f"{name}: no healthcheck"
 
 
-def test_total_memory_budget_under_16gb() -> None:
+def test_long_running_services_fit_an_8gb_docker_vm() -> None:
+    """A 16 GB laptop gives Docker about 8 GB; steady-state limits must fit with headroom.
+
+    One-shot containers (migrations, init, registration) run briefly at startup only.
+    """
+
     def to_mb(value: str) -> int:
         value = value.lower()
         if value.endswith("g"):
@@ -72,8 +77,10 @@ def test_total_memory_budget_under_16gb() -> None:
             return int(value[:-1])
         raise ValueError(value)
 
-    total = sum(to_mb(s["deploy"]["resources"]["limits"]["memory"]) for s in SERVICES.values())
-    assert total <= 12 * 1024, f"compose memory limits total {total} MB; keep headroom on 16 GB"
+    total = sum(
+        to_mb(SERVICES[name]["deploy"]["resources"]["limits"]["memory"]) for name in LONG_RUNNING
+    )
+    assert total <= 7680, f"long-running memory limits total {total} MB; budget is 7680 MB"
 
 
 def test_catalog_db_is_not_the_oltp_source() -> None:

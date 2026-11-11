@@ -39,7 +39,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 384m
 
   # One-shot: applies versioned OLTP migrations (postgres/migrations), then exits 0.
   postgres-migrate:
@@ -69,7 +69,7 @@ services:
       - start
       - --mode=dev-container
       - --smp=1
-      - --memory=1G
+      - --memory=768M
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://127.0.0.1:${REDPANDA_KAFKA_PORT:-19092}
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
@@ -91,7 +91,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1536m
+          memory: 1024m
 
   # One-shot: sets service-account passwords from .env (postgres/roles.psql).
   postgres-roles:
@@ -131,7 +131,7 @@ services:
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
-      HEAP_OPTS: -Xms256m -Xmx512m
+      HEAP_OPTS: -Xms256m -Xmx384m
       # Connector configs reference ${env:...}; secrets never enter the config topic.
       CONNECT_CONFIG_PROVIDERS: env
       CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
@@ -153,7 +153,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1536m
+          memory: 1024m
 
   # One-shot: registers connect/connectors/*.json and waits until RUNNING. Idempotent.
   connect-init:
@@ -224,7 +224,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768m
+          memory: 512m
 
   # Postgres for the Iceberg catalog only, isolated from the OLTP source (ADR-002).
   catalog-db:
@@ -341,7 +341,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2560m
+          memory: 1536m
 
   # Flink session cluster (ADR-001, ADR-002): one JobManager, one TaskManager.
   flink-jobmanager:
@@ -354,7 +354,9 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 768m
-        taskmanager.memory.process.size: 1792m
+        taskmanager.memory.process.size: 1280m
+        # Jobs keep state on the heap (no RocksDB), so little managed memory is needed.
+        taskmanager.memory.managed.fraction: 0.1
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 1
       # S3FileIO reads these through the AWS SDK default credential chain.
@@ -381,7 +383,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024m
+          memory: 896m
 
   flink-taskmanager:
     <<: *restart
@@ -395,7 +397,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048m
+          memory: 1408m
 
 volumes:
   pg_data:
