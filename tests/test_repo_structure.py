@@ -36,6 +36,9 @@ REQUIRED_FILES = [
     "docker-compose.yml",
     "scripts/health.sh",
     "scripts/lakekeeper-bootstrap.sh",
+    "scripts/phase0-gate.sh",
+    "trino/etc/jvm.config",
+    "trino/etc/catalog/lake.properties",
 ]
 
 

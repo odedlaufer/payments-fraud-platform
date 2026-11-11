@@ -23,6 +23,7 @@ EXPECTED_SERVICES = {
     "lakekeeper-migrate",
     "lakekeeper",
     "lakekeeper-init",
+    "trino",
 }
 
 
