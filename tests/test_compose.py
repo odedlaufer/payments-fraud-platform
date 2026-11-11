@@ -30,6 +30,8 @@ EXPECTED_SERVICES = {
     "trino",
     "flink-jobmanager",
     "flink-taskmanager",
+    "bronze-ddl",
+    "flink-jobs",
 }
 
 
