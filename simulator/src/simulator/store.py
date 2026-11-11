@@ -44,7 +44,7 @@ class Store(Protocol):
     def update_merchant(
         self, merchant_id: int, changes: dict[str, object], at: datetime
     ) -> None: ...
-    def delete_merchant(self, merchant_id: int) -> None: ...
+    def delete_merchant(self, merchant_id: int, at: datetime) -> None: ...
 
 
 CUSTOMER_COLUMNS = {"email", "phone", "address_line", "risk_tier"}
@@ -186,8 +186,13 @@ class PostgresStore:
             (*changes.values(), at, merchant_id),
         )
 
-    def delete_merchant(self, merchant_id: int) -> None:
+    def delete_merchant(self, merchant_id: int, at: datetime) -> None:
+        # A hard delete only carries the row's last event_ts. Stamp the delete time first,
+        # in the same transaction, so CDC's delete event records when it happened (SCD2).
         self.ops["merchants", "delete"] += 1
+        self.conn.execute(
+            "update merchants set event_ts = %s where merchant_id = %s", (at, merchant_id)
+        )
         self.conn.execute("delete from merchants where merchant_id = %s", (merchant_id,))
 
 
@@ -254,6 +259,6 @@ class MemoryStore:
         self.ops["merchants", "update"] += 1
         self.log.append(("merchants", "update", merchant_id, changes))
 
-    def delete_merchant(self, merchant_id: int) -> None:
+    def delete_merchant(self, merchant_id: int, at: datetime) -> None:
         self.ops["merchants", "delete"] += 1
-        self.log.append(("merchants", "delete", merchant_id, None))
+        self.log.append(("merchants", "delete", merchant_id, at))
