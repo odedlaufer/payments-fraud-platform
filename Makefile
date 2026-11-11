@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -109,3 +109,9 @@ gen-bronze: ## Regenerate bronze DDL (Trino) and the bronze Flink job from the P
 
 flink-jobs: ## Submit long-running Flink jobs that are not already running
 	docker compose run --rm flink-jobs
+
+bronze-reconcile: ## Every CDC event is in bronze exactly once (waits for the 60 s commits)
+	uv run python scripts/bronze_reconcile.py
+
+chaos-ch1-bronze: ## CH-1 (bronze): SIGKILL the TaskManager mid-run, then reconcile bronze
+	chaos/ch1-bronze.sh

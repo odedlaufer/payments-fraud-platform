@@ -146,6 +146,21 @@ def load_env() -> dict[str, str]:
     return values
 
 
+def kafka_clients(env: dict[str, str]) -> tuple[Consumer, AvroDeserializer]:
+    consumer = Consumer(
+        {
+            "bootstrap.servers": f"127.0.0.1:{env.get('REDPANDA_KAFKA_PORT', '19092')}",
+            "group.id": f"reconcile-{uuid.uuid4()}",
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        }
+    )
+    registry = SchemaRegistryClient(
+        {"url": f"http://localhost:{env.get('REDPANDA_SCHEMA_REGISTRY_PORT', '18081')}"}
+    )
+    return consumer, AvroDeserializer(registry)
+
+
 def high_watermarks(consumer: Consumer, topics: list[str]) -> dict[str, int]:
     marks = {}
     metadata = consumer.list_topics(timeout=10).topics
@@ -173,9 +188,10 @@ def wait_until_settled(consumer: Consumer, topics: list[str], settle_s: float) -
     return last
 
 
-def read_topic(
+def read_records(
     consumer: Consumer, deserialize: AvroDeserializer, topic: str, pk: str
-) -> Iterator[tuple[Any, dict[str, Any] | None]]:
+) -> Iterator[tuple[int, int, Any, dict[str, Any] | None]]:
+    """Yields (partition, offset, primary key, value) from the start of `topic` to its end."""
     metadata = consumer.list_topics(topic, timeout=10).topics.get(topic)
     if metadata is None or not metadata.partitions:
         return
@@ -210,10 +226,17 @@ def read_topic(
                     deserialize(raw, SerializationContext(topic, MessageField.VALUE)),
                 )
             )
-            yield key[pk], value
+            yield p, offset, key[pk], value
             if offset + 1 >= remaining[p]:
                 del remaining[p]
     consumer.unassign()
+
+
+def read_topic(
+    consumer: Consumer, deserialize: AvroDeserializer, topic: str, pk: str
+) -> Iterator[tuple[Any, dict[str, Any] | None]]:
+    for _, _, key, value in read_records(consumer, deserialize, topic, pk):
+        yield key, value
 
 
 def postgres_rows(
@@ -229,18 +252,7 @@ def main() -> int:
     args = parser.parse_args()
     env = load_env()
 
-    consumer = Consumer(
-        {
-            "bootstrap.servers": f"127.0.0.1:{env.get('REDPANDA_KAFKA_PORT', '19092')}",
-            "group.id": f"cdc-reconcile-{uuid.uuid4()}",
-            "enable.auto.commit": False,
-            "auto.offset.reset": "earliest",
-        }
-    )
-    registry = SchemaRegistryClient(
-        {"url": f"http://localhost:{env.get('REDPANDA_SCHEMA_REGISTRY_PORT', '18081')}"}
-    )
-    deserialize = AvroDeserializer(registry)
+    consumer, deserialize = kafka_clients(env)
     topics = [f"pg.public.{t}" for t in TABLES]
 
     print(f"waiting for CDC to settle ({args.settle_seconds:.0f}s without new events)...")

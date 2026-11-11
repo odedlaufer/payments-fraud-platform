@@ -54,6 +54,8 @@ REQUIRED_FILES = [
     "scripts/submit-flink-jobs.sh",
     "trino/ddl/bronze.sql",
     "flink/sql/bronze/bronze_cdc.sql",
+    "scripts/bronze_reconcile.py",
+    "chaos/ch1-bronze.sh",
 ]
 
 
