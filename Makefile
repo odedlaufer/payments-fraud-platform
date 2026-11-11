@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests
+	uv run mypy tests simulator/src
 
 test: ## Run unit tests
 	uv run pytest
@@ -83,3 +83,6 @@ connectors: ## Register or update connectors from connect/connectors/*.json
 connector-status: ## Show Debezium connector and task state
 	@curl -fsS "http://localhost:$${CONNECT_PORT:-8083}/connectors/payments-postgres/status" \
 	  | uv run python -c "import json,sys; s=json.load(sys.stdin); print('connector', s['connector']['state']); [print('task', t['id'], t['state']) for t in s['tasks']]"
+
+seed: ## Insert simulator reference data (ARGS="--customers 2000 --merchants 300 --seed 42")
+	uv run simulator seed $(ARGS)
