@@ -55,6 +55,12 @@ connect_plugins_ready() {
     && grep -q "io.confluent.connect.avro.AvroConverter" <<< "$plugins"
 }
 
+# Debezium connector and its task are RUNNING.
+connector_running() {
+  curl -fsS --max-time 3 "http://localhost:${CONNECT_PORT}/connectors/$1/status" \
+    | grep -o '"state":"RUNNING"' | wc -l | grep -qE '^ *[2-9]'
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -77,6 +83,7 @@ if has_profile core; then
   wait_for "schema-registry" http_ok "http://localhost:${REDPANDA_SCHEMA_REGISTRY_PORT}/subjects"
   wait_for "redpanda-console" http_ok "http://localhost:${REDPANDA_CONSOLE_PORT}/"
   wait_for "kafka-connect" connect_plugins_ready
+  wait_for "cdc:payments-postgres" connector_running payments-postgres
 fi
 
 if has_profile lake; then

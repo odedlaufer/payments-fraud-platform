@@ -1,0 +1,11 @@
+-- Sets service-account passwords from the environment on every `make up`,
+-- so secrets stay out of migrations and git. Run by the postgres-roles service.
+\set ON_ERROR_STOP on
+\getenv debezium_password DEBEZIUM_DB_PASSWORD
+
+select coalesce(:'debezium_password', '') = '' as password_missing \gset
+\if :password_missing
+    do $$ begin raise exception 'DEBEZIUM_DB_PASSWORD is empty'; end $$;
+\endif
+
+alter role debezium with password :'debezium_password';
