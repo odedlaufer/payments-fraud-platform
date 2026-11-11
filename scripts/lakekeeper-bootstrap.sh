@@ -51,7 +51,8 @@ curl -fsS -X POST "${MGMT}/warehouse" \
     "region": "${S3_REGION}",
     "path-style-access": true,
     "flavor": "s3-compat",
-    "sts-enabled": false
+    "sts-enabled": false,
+    "remote-signing-enabled": false
   },
   "storage-credential": {
     "type": "s3",

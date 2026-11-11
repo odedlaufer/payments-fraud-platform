@@ -45,6 +45,11 @@ REQUIRED_FILES = [
     "postgres/roles.psql",
     "scripts/register-connectors.sh",
     "scripts/cdc_reconcile.py",
+    "scripts/lock-jars.sh",
+    "scripts/flink-iceberg-check.sh",
+    "flink/Dockerfile",
+    "flink/jars.txt",
+    "flink/jars.lock",
 ]
 
 

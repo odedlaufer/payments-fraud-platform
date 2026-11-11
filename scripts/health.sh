@@ -10,7 +10,7 @@ source .env
 set +a
 
 TIMEOUT="${1:-180}"
-PROFILES=",${COMPOSE_PROFILES:-core,lake},"
+PROFILES=",${COMPOSE_PROFILES:-core,lake,stream},"
 FAILED=0
 
 has_profile() { [[ "$PROFILES" == *",$1,"* ]]; }
@@ -61,6 +61,11 @@ connector_running() {
     | grep -o '"state":"RUNNING"' | wc -l | grep -qE '^ *[2-9]'
 }
 
+# JobManager is up and the TaskManager has registered its slots.
+flink_ready() {
+  curl -fsS --max-time 3 "http://localhost:${FLINK_UI_PORT}/overview" | grep -qE '"taskmanagers":[1-9]'
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -93,6 +98,10 @@ if has_profile lake; then
   wait_for "lakekeeper" http_ok "http://localhost:${LAKEKEEPER_PORT}/health"
   wait_for "warehouse:${WAREHOUSE_NAME}" warehouse_exists "${WAREHOUSE_NAME}"
   wait_for "trino" trino_ready
+fi
+
+if has_profile stream; then
+  wait_for "flink" flink_ready
 fi
 
 if (( FAILED )); then

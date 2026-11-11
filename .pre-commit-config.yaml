@@ -20,9 +20,12 @@ repos:
   - repo: https://github.com/sqlfluff/sqlfluff
     rev: 3.3.0
     hooks:
+      # Flink SQL has no sqlfluff dialect; it is validated by running it.
       - id: sqlfluff-lint
+        exclude: ^flink/
       - id: sqlfluff-fix
         args: [--force]
+        exclude: ^flink/
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:
