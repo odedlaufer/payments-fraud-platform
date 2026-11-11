@@ -8,11 +8,7 @@ help: ## Show available targets
 
 setup: ## Install dev dependencies and git hooks
 	uv sync --frozen
-	@if [ -n "$$(git config core.hooksPath)" ]; then \
-	  echo "core.hooksPath is set ($$(git config core.hooksPath)); skipping pre-commit install. Run 'make lint' before committing."; \
-	else \
-	  uv run pre-commit install; \
-	fi
+	GIT_CONFIG_GLOBAL=/dev/null uv run pre-commit install
 	@test -f .env || (cp .env.example .env && echo "Created .env from .env.example")
 
 lint: ## Run all pre-commit hooks on all files
