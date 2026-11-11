@@ -16,6 +16,7 @@ HEALTHCHECKED_EXTERNALLY = {"console"}
 
 EXPECTED_SERVICES = {
     "postgres",
+    "postgres-migrate",
     "redpanda",
     "console",
     "seaweedfs",
@@ -86,3 +87,8 @@ def test_ports_bound_to_localhost(name: str) -> None:
     """Auth is off on local services, so nothing may listen on the LAN."""
     for port in SERVICES[name]["ports"]:
         assert str(port).startswith("127.0.0.1:"), f"{name}: {port} is exposed beyond localhost"
+
+
+def test_postgres_runs_logical_replication() -> None:
+    """FR-CDC1: Debezium needs wal_level=logical."""
+    assert "wal_level=logical" in SERVICES["postgres"]["command"]

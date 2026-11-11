@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -26,6 +26,9 @@ typecheck: ## Run mypy
 
 test: ## Run unit tests
 	uv run pytest
+
+test-integration: ## Run integration tests against the running stack (make up first)
+	uv run pytest -m integration
 
 check: lint typecheck test ## Run everything CI runs
 
@@ -55,3 +58,17 @@ health: ## Check health of running services
 
 gate: ## Phase 0 gate: Trino writes and reads an Iceberg table via Lakekeeper on SeaweedFS
 	scripts/phase0-gate.sh
+
+migrate: ## Apply pending OLTP migrations
+	docker compose run --rm postgres-migrate
+
+migrate-status: ## List applied and pending OLTP migrations
+	docker compose run --rm postgres-migrate --no-dump-schema status
+
+migrate-rollback: ## Roll back the latest OLTP migration
+	docker compose run --rm postgres-migrate --no-dump-schema rollback
+
+new-migration: ## Create an empty migration: make new-migration NAME=add_x
+	@test -n "$(NAME)" || (echo "usage: make new-migration NAME=snake_case_name" && exit 1)
+	@f=postgres/migrations/$$(date -u +%Y%m%d%H%M%S)_$(NAME).sql; \
+	printf -- '-- migrate:up\n\n-- migrate:down\n' > $$f; echo "created $$f"

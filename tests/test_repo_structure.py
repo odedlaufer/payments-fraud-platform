@@ -39,6 +39,7 @@ REQUIRED_FILES = [
     "scripts/phase0-gate.sh",
     "trino/etc/jvm.config",
     "trino/etc/catalog/lake.properties",
+    "postgres/.sqlfluff",
 ]
 
 
