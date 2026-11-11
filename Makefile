@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -52,3 +52,6 @@ logs: ## Tail logs (SERVICE=name for one service)
 
 health: ## Check health of running services
 	scripts/health.sh 30
+
+gate: ## Phase 0 gate: Trino writes and reads an Iceberg table via Lakekeeper on SeaweedFS
+	scripts/phase0-gate.sh

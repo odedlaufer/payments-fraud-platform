@@ -201,6 +201,35 @@ services:
         limits:
           memory: 64m
 
+  # SQL engine over the lakehouse; dbt target (PRD section 3).
+  trino:
+    <<: *restart
+    image: trinodb/trino:484
+    profiles: [lake]
+    environment:
+      CATALOG_MANAGEMENT: static
+      WAREHOUSE_NAME: ${WAREHOUSE_NAME}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      - "127.0.0.1:${TRINO_PORT:-8088}:8080"
+    volumes:
+      - ./trino/etc/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/etc/catalog/lake.properties:/etc/trino/catalog/lake.properties:ro
+    healthcheck:
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+    depends_on:
+      lakekeeper-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 2560m
+
 volumes:
   pg_data:
   redpanda_data:
