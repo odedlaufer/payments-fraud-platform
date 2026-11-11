@@ -17,6 +17,7 @@ HEALTHCHECKED_EXTERNALLY = {"console"}
 EXPECTED_SERVICES = {
     "postgres",
     "postgres-migrate",
+    "connect",
     "redpanda",
     "console",
     "seaweedfs",
@@ -92,3 +93,13 @@ def test_ports_bound_to_localhost(name: str) -> None:
 def test_postgres_runs_logical_replication() -> None:
     """FR-CDC1: Debezium needs wal_level=logical."""
     assert "wal_level=logical" in SERVICES["postgres"]["command"]
+
+
+def test_connect_image_pins_avro_converter_checksum() -> None:
+    """The converter archive is downloaded at build time; its SHA-256 must be pinned."""
+    dockerfile = (ROOT / "connect/Dockerfile").read_text()
+    assert "FROM quay.io/debezium/connect:3.7.0.Final" in dockerfile
+    sha = [line for line in dockerfile.splitlines() if "ARG AVRO_CONVERTER_SHA256=" in line]
+    assert len(sha) == 1
+    value = sha[0].split("=", 1)[1]
+    assert len(value) == 64 and all(c in "0123456789abcdef" for c in value), value

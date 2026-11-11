@@ -47,6 +47,14 @@ migrations_applied() {
   [[ "$actual" == "$expected" ]]
 }
 
+# Connect worker is up and has both plugins Debezium needs.
+connect_plugins_ready() {
+  local plugins
+  plugins=$(curl -fsS --max-time 3 "http://localhost:${CONNECT_PORT}/connector-plugins?connectorsOnly=false")
+  grep -q "io.debezium.connector.postgresql.PostgresConnector" <<< "$plugins" \
+    && grep -q "io.confluent.connect.avro.AvroConverter" <<< "$plugins"
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -68,6 +76,7 @@ if has_profile core; then
   wait_for "redpanda" docker compose exec -T redpanda sh -c "rpk cluster health | grep -qE 'Healthy:.+true'"
   wait_for "schema-registry" http_ok "http://localhost:${REDPANDA_SCHEMA_REGISTRY_PORT}/subjects"
   wait_for "redpanda-console" http_ok "http://localhost:${REDPANDA_CONSOLE_PORT}/"
+  wait_for "kafka-connect" connect_plugins_ready
 fi
 
 if has_profile lake; then
