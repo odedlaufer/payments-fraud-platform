@@ -55,6 +55,8 @@ REQUIRED_FILES = [
     "trino/ddl/bronze.sql",
     "flink/sql/bronze/bronze_cdc.sql",
     "scripts/bronze_reconcile.py",
+    "scripts/silver_reconcile.py",
+    "scripts/phase2-gate.sh",
     "chaos/ch1-bronze.sh",
     "dbt/dbt_project.yml",
     "dbt/profiles.yml",
