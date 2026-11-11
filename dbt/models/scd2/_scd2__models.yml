@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: customers_scd2
+    description: SCD2 history of customers, one row per version (FR-L2).
+    data_tests:
+      - scd2_one_current_version:
+          arguments:
+            pk: customer_id
+      - scd2_contiguous:
+          arguments:
+            pk: customer_id
+      - scd2_current_matches_silver:
+          arguments:
+            pk: customer_id
+            silver: customers_current
+    columns:
+      - name: customer_id
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]
+
+  - name: cards_scd2
+    description: SCD2 history of cards, one row per version (FR-L2).
+    data_tests:
+      - scd2_one_current_version:
+          arguments:
+            pk: card_id
+      - scd2_contiguous:
+          arguments:
+            pk: card_id
+      - scd2_current_matches_silver:
+          arguments:
+            pk: card_id
+            silver: cards_current
+    columns:
+      - name: card_id
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]
+
+  - name: merchants_scd2
+    description: SCD2 history of merchants; a deleted merchant's last version ends at its delete time.
+    data_tests:
+      - scd2_one_current_version:
+          arguments:
+            pk: merchant_id
+      - scd2_contiguous:
+          arguments:
+            pk: merchant_id
+      - scd2_current_matches_silver:
+          arguments:
+            pk: merchant_id
+            silver: merchants_current
+    columns:
+      - name: merchant_id
+        data_tests: [not_null]
+      - name: valid_from
+        data_tests: [not_null]

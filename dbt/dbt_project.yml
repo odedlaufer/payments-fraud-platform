@@ -22,3 +22,7 @@ models:
       +materialized: incremental
       +incremental_strategy: merge
       +on_schema_change: append_new_columns
+    # PRD namespace `snapshots`; built from the CDC log, not dbt snapshots (ADR-006).
+    scd2:
+      +schema: snapshots
+      +materialized: table

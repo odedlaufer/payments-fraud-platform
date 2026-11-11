@@ -22,12 +22,13 @@ repos:
     hooks:
       # Flink SQL has no sqlfluff dialect, and generated files must stay byte-identical
       # to their generator (gen_bronze.py --check); both are validated by running them.
-      # dbt macros are pure Jinja definitions with nothing to lint on their own.
+      # dbt macros, and SCD2 models that only call one (via dbt's adapter), have
+      # nothing sqlfluff can render or lint on their own.
       - id: sqlfluff-lint
-        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/)
+        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/)
       - id: sqlfluff-fix
         args: [--force]
-        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/)
+        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/)
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:

@@ -59,6 +59,7 @@ REQUIRED_FILES = [
     "dbt/dbt_project.yml",
     "dbt/profiles.yml",
     "dbt/macros/current_state.sql",
+    "dbt/macros/scd2.sql",
     "dbt/models/staging/_bronze__sources.yml",
 ]
 

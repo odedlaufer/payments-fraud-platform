@@ -141,3 +141,31 @@ def test_heartbeat_advances(oltp_autocommit: Conn) -> None:
         if now != first:
             return
     pytest.fail("heartbeat row did not change within 30 s")
+
+
+def test_merchant_delete_records_when_it_happened(
+    oltp_autocommit: Conn, bootstrap: str, registry_url: str
+) -> None:
+    """The delete event's before-image carries the delete time, so SCD2 can close the row."""
+    from simulator.store import PostgresStore
+
+    created = datetime(2026, 1, 1, tzinfo=UTC)
+    deleted = datetime(2026, 1, 2, 12, 30, tzinfo=UTC)
+    row = oltp_autocommit.execute(
+        "insert into merchants (name, mcc, category, country_code, lat, lon, event_ts) "
+        "values ('CDC Delete Test', '5411', 'grocery', 'IL', 32.0, 34.8, %s) returning merchant_id",
+        (created,),
+    ).fetchone()
+    assert row is not None
+    merchant_id = row[0]
+    with oltp_autocommit.transaction():
+        PostgresStore(oltp_autocommit).delete_merchant(int(str(merchant_id)), deleted)
+
+    events = read_events(
+        bootstrap, registry_url, "pg.public.merchants", "merchant_id", merchant_id, 4
+    )
+    assert len(events) == 4, f"expected c, u, d, tombstone; got {len(events)}"
+    created_ev, stamped, deleted_ev, tombstone = events
+    assert created_ev is not None and stamped is not None and deleted_ev is not None
+    assert [created_ev["op"], stamped["op"], deleted_ev["op"], tombstone] == ["c", "u", "d", None]
+    assert datetime.fromisoformat(deleted_ev["before"]["event_ts"]) == deleted

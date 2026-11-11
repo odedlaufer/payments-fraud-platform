@@ -279,4 +279,4 @@ class Engine:
         merchant_id = self.rng.choice(list(self.world.merchants))
         merchant = self.world.merchants.pop(merchant_id)
         self._merchants_by_country[merchant.country_code].remove(merchant_id)
-        self.store.delete_merchant(merchant_id)
+        self.store.delete_merchant(merchant_id, at)
