@@ -32,6 +32,12 @@ wait_for() {
 
 http_ok() { curl -fsS -o /dev/null --max-time 3 "$1"; }
 
+# Lakekeeper is bootstrapped and the warehouse exists.
+warehouse_exists() {
+  curl -fsS --max-time 3 "http://localhost:${LAKEKEEPER_PORT}/management/v1/warehouse" \
+    | grep -q "\"name\":\"$1\""
+}
+
 # Signed HEAD on the bucket: proves credentials work and the bucket exists.
 s3_bucket_exists() {
   curl -fsS -o /dev/null --max-time 3 -I \
@@ -52,6 +58,9 @@ fi
 if has_profile lake; then
   wait_for "seaweedfs-s3" http_ok "http://localhost:${S3_API_PORT}/healthz"
   wait_for "s3-bucket:${LAKE_BUCKET}" s3_bucket_exists "${LAKE_BUCKET}"
+  wait_for "catalog-db" docker compose exec -T catalog-db pg_isready -U "$CATALOG_DB_USER" -d "$CATALOG_DB_NAME"
+  wait_for "lakekeeper" http_ok "http://localhost:${LAKEKEEPER_PORT}/health"
+  wait_for "warehouse:${WAREHOUSE_NAME}" warehouse_exists "${WAREHOUSE_NAME}"
 fi
 
 if (( FAILED )); then

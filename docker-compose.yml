@@ -16,7 +16,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set in .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -47,9 +47,9 @@ services:
       - --rpc-addr=redpanda:33145
       - --advertise-rpc-addr=redpanda:33145
     ports:
-      - "${REDPANDA_KAFKA_PORT:-19092}:19092"
-      - "${REDPANDA_SCHEMA_REGISTRY_PORT:-18081}:18081"
-      - "19644:9644"
+      - "127.0.0.1:${REDPANDA_KAFKA_PORT:-19092}:19092"
+      - "127.0.0.1:${REDPANDA_SCHEMA_REGISTRY_PORT:-18081}:18081"
+      - "127.0.0.1:19644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     healthcheck:
@@ -73,7 +73,7 @@ services:
       REDPANDA_ADMINAPI_ENABLED: "true"
       REDPANDA_ADMINAPI_URLS: http://redpanda:9644
     ports:
-      - "${REDPANDA_CONSOLE_PORT:-8080}:8080"
+      - "127.0.0.1:${REDPANDA_CONSOLE_PORT:-8080}:8080"
     depends_on:
       redpanda:
         condition: service_healthy
@@ -100,7 +100,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set in .env}
       S3_BUCKET: ${LAKE_BUCKET:?set in .env}
     ports:
-      - "${S3_API_PORT:-8333}:8333"
+      - "127.0.0.1:${S3_API_PORT:-8333}:8333"
     volumes:
       - seaweedfs_data:/data
     healthcheck:
@@ -113,7 +113,96 @@ services:
         limits:
           memory: 768m
 
+  # Postgres for the Iceberg catalog only, isolated from the OLTP source (ADR-002).
+  catalog-db:
+    <<: *restart
+    image: postgres:16.6
+    profiles: [lake]
+    environment:
+      POSTGRES_USER: ${CATALOG_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:?set in .env}
+      POSTGRES_DB: ${CATALOG_DB_NAME:?set in .env}
+    volumes:
+      - catalog_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # One-shot: applies Lakekeeper's schema migrations, then exits 0.
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:v0.14.2
+    profiles: [lake]
+    command: ["migrate"]
+    environment: &lakekeeper-env
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
+      LAKEKEEPER__PG_ENCRYPTION_KEY: ${LAKEKEEPER_ENCRYPTION_KEY:?set in .env}
+      RUST_LOG: info
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  # Iceberg REST catalog (ADR-002).
+  lakekeeper:
+    <<: *restart
+    image: quay.io/lakekeeper/catalog:v0.14.2
+    profiles: [lake]
+    command: ["serve"]
+    environment: *lakekeeper-env
+    ports:
+      - "127.0.0.1:${LAKEKEEPER_PORT:-8181}:8181"
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # One-shot: bootstraps Lakekeeper and creates the warehouse on SeaweedFS. Idempotent.
+  lakekeeper-init:
+    image: curlimages/curl:8.23.0
+    profiles: [lake]
+    entrypoint: ["sh", "/bootstrap.sh"]
+    environment:
+      LAKEKEEPER_URL: http://lakekeeper:8181
+      WAREHOUSE_NAME: ${WAREHOUSE_NAME:?set in .env}
+      LAKE_BUCKET: ${LAKE_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_REGION: us-east-1
+    volumes:
+      - ./scripts/lakekeeper-bootstrap.sh:/bootstrap.sh:ro
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
 volumes:
   pg_data:
   redpanda_data:
   seaweedfs_data:
+  catalog_db_data:

@@ -14,7 +14,16 @@ LONG_RUNNING = sorted(set(SERVICES) - ONE_SHOT)
 # Services checked over HTTP by scripts/health.sh instead of a container healthcheck.
 HEALTHCHECKED_EXTERNALLY = {"console"}
 
-EXPECTED_SERVICES = {"postgres", "redpanda", "console", "seaweedfs"}
+EXPECTED_SERVICES = {
+    "postgres",
+    "redpanda",
+    "console",
+    "seaweedfs",
+    "catalog-db",
+    "lakekeeper-migrate",
+    "lakekeeper",
+    "lakekeeper-init",
+}
 
 
 def test_expected_services_present() -> None:
@@ -58,3 +67,21 @@ def test_total_memory_budget_under_16gb() -> None:
 
     total = sum(to_mb(s["deploy"]["resources"]["limits"]["memory"]) for s in SERVICES.values())
     assert total <= 12 * 1024, f"compose memory limits total {total} MB; keep headroom on 16 GB"
+
+
+def test_catalog_db_is_not_the_oltp_source() -> None:
+    """ADR-002: the catalog must not share the CDC source database."""
+    env = SERVICES["lakekeeper"]["environment"]
+    assert "@catalog-db:" in env["LAKEKEEPER__PG_DATABASE_URL_WRITE"]
+    assert "@postgres:" not in env["LAKEKEEPER__PG_DATABASE_URL_WRITE"]
+
+
+def test_catalog_db_not_exposed_to_host() -> None:
+    assert "ports" not in SERVICES["catalog-db"]
+
+
+@pytest.mark.parametrize("name", sorted(n for n, s in SERVICES.items() if "ports" in s))
+def test_ports_bound_to_localhost(name: str) -> None:
+    """Auth is off on local services, so nothing may listen on the LAN."""
+    for port in SERVICES[name]["ports"]:
+        assert str(port).startswith("127.0.0.1:"), f"{name}: {port} is exposed beyond localhost"
