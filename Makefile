@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -103,3 +103,9 @@ flink-check: ## ADR-002 verification 2: Flink writes Iceberg via Lakekeeper, Tri
 
 lock-jars: ## Regenerate flink/jars.lock from flink/jars.txt (verifies Maven SHA-1, pins SHA-256)
 	scripts/lock-jars.sh flink/jars.txt > flink/jars.lock.tmp && mv flink/jars.lock.tmp flink/jars.lock
+
+gen-bronze: ## Regenerate bronze DDL (Trino) and the bronze Flink job from the Postgres schema
+	uv run python scripts/gen_bronze.py
+
+flink-jobs: ## Submit long-running Flink jobs that are not already running
+	docker compose run --rm flink-jobs

@@ -50,6 +50,10 @@ REQUIRED_FILES = [
     "flink/Dockerfile",
     "flink/jars.txt",
     "flink/jars.lock",
+    "scripts/gen_bronze.py",
+    "scripts/submit-flink-jobs.sh",
+    "trino/ddl/bronze.sql",
+    "flink/sql/bronze/bronze_cdc.sql",
 ]
 
 

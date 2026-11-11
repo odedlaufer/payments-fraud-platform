@@ -353,12 +353,24 @@ services:
     environment: &flink-env
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
+        # Clients (sql-client, flink CLI) submit here; the image default is 0.0.0.0.
+        rest.address: flink-jobmanager
         jobmanager.memory.process.size: 768m
         taskmanager.memory.process.size: 1280m
         # Jobs keep state on the heap (no RocksDB), so little managed memory is needed.
         taskmanager.memory.managed.fraction: 0.1
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 1
+        state.backend.type: hashmap
+        execution.checkpointing.dir: s3://lake/flink/checkpoints
+        execution.checkpointing.savepoint-dir: s3://lake/flink/savepoints
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        s3.endpoint: http://seaweedfs:8333
+        s3.path.style.access: true
+        s3.access-key: ${S3_ACCESS_KEY}
+        s3.secret-key: ${S3_SECRET_KEY}
+      # Checkpoints and savepoints on SeaweedFS (FR-F4).
+      ENABLE_BUILT_IN_PLUGINS: flink-s3-fs-presto-2.1.3.jar
       # S3FileIO reads these through the AWS SDK default credential chain.
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
@@ -398,6 +410,44 @@ services:
       resources:
         limits:
           memory: 1408m
+
+  # One-shot: creates the bronze Iceberg tables (generated, idempotent).
+  bronze-ddl:
+    image: trinodb/trino:484
+    profiles: [stream]
+    entrypoint: ["trino", "--server", "http://trino:8080", "-f", "/ddl/bronze.sql"]
+    volumes:
+      - ./trino/ddl:/ddl:ro
+    depends_on:
+      trino:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  # One-shot: submits long-running Flink SQL jobs that are not already running.
+  flink-jobs:
+    image: payments-fraud-platform/flink:2.1.3-iceberg-1.12.0
+    profiles: [stream]
+    command: ["bash", "/submit-flink-jobs.sh"]
+    environment: *flink-env
+    volumes:
+      - ./flink/sql:/opt/flink/sql:ro
+      - ./scripts/submit-flink-jobs.sh:/submit-flink-jobs.sh:ro
+    depends_on:
+      flink-taskmanager:
+        condition: service_started
+      bronze-ddl:
+        condition: service_completed_successfully
+      connect-init:
+        condition: service_completed_successfully
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 768m
 
 volumes:
   pg_data:

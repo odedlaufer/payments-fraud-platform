@@ -66,6 +66,12 @@ flink_ready() {
   curl -fsS --max-time 3 "http://localhost:${FLINK_UI_PORT}/overview" | grep -qE '"taskmanagers":[1-9]'
 }
 
+# A named Flink job is RUNNING.
+flink_job_running() {
+  curl -fsS --max-time 3 "http://localhost:${FLINK_UI_PORT}/jobs/overview" \
+    | grep -qE "\"name\":\"$1\"[^}]*\"state\":\"RUNNING\""
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -102,6 +108,7 @@ fi
 
 if has_profile stream; then
   wait_for "flink" flink_ready
+  wait_for "job:bronze-cdc" flink_job_running bronze-cdc
 fi
 
 if (( FAILED )); then
