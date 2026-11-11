@@ -40,6 +40,7 @@ REQUIRED_FILES = [
     "trino/etc/jvm.config",
     "trino/etc/catalog/lake.properties",
     "postgres/.sqlfluff",
+    "connect/Dockerfile",
 ]
 
 

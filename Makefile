@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -72,3 +72,7 @@ new-migration: ## Create an empty migration: make new-migration NAME=add_x
 	@test -n "$(NAME)" || (echo "usage: make new-migration NAME=snake_case_name" && exit 1)
 	@f=postgres/migrations/$$(date -u +%Y%m%d%H%M%S)_$(NAME).sql; \
 	printf -- '-- migrate:up\n\n-- migrate:down\n' > $$f; echo "created $$f"
+
+connect-plugins: ## List Kafka Connect connector and converter plugins
+	@curl -fsS "http://localhost:$${CONNECT_PORT:-8083}/connector-plugins?connectorsOnly=false" \
+	  | uv run python -c "import json,sys; [print(p['type'].ljust(10), p['class'], p.get('version','')) for p in json.load(sys.stdin)]"

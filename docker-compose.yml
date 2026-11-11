@@ -93,6 +93,41 @@ services:
         limits:
           memory: 1536m
 
+  # Kafka Connect worker running Debezium (FR-CDC2). Connectors are registered
+  # separately; the worker stores configs, offsets and status in Redpanda.
+  connect:
+    <<: *restart
+    build: ./connect
+    image: payments-fraud-platform/connect:3.7.0-avro-8.3.2
+    profiles: [core]
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: payments-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      HEAP_OPTS: -Xms256m -Xmx512m
+    ports:
+      - "127.0.0.1:${CONNECT_PORT:-8083}:8083"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8083/connector-plugins"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
+
   console:
     <<: *restart
     image: docker.redpanda.com/redpandadata/console:v3.13.1
