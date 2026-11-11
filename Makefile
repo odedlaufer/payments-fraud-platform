@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -86,3 +86,6 @@ connector-status: ## Show Debezium connector and task state
 
 seed: ## Insert simulator reference data (ARGS="--customers 2000 --merchants 300 --seed 42")
 	uv run simulator seed $(ARGS)
+
+sim: ## Run the simulator in real time (SPEED=real min per sim day, TPS=tx per second, ARGS=...)
+	uv run simulator run --minutes-per-day $(or $(SPEED),10) --tps $(or $(TPS),20) $(ARGS)
