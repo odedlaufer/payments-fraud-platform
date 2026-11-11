@@ -35,6 +35,7 @@ REQUIRED_FILES = [
     ".pre-commit-config.yaml",
     "docker-compose.yml",
     "scripts/health.sh",
+    "scripts/lakekeeper-bootstrap.sh",
 ]
 
 

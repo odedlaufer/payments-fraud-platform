@@ -113,7 +113,96 @@ services:
         limits:
           memory: 768m
 
+  # Postgres for the Iceberg catalog only, isolated from the OLTP source (ADR-002).
+  catalog-db:
+    <<: *restart
+    image: postgres:16.6
+    profiles: [lake]
+    environment:
+      POSTGRES_USER: ${CATALOG_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:?set in .env}
+      POSTGRES_DB: ${CATALOG_DB_NAME:?set in .env}
+    volumes:
+      - catalog_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # One-shot: applies Lakekeeper's schema migrations, then exits 0.
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:v0.14.2
+    profiles: [lake]
+    command: ["migrate"]
+    environment: &lakekeeper-env
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
+      LAKEKEEPER__PG_ENCRYPTION_KEY: ${LAKEKEEPER_ENCRYPTION_KEY:?set in .env}
+      RUST_LOG: info
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  # Iceberg REST catalog (ADR-002).
+  lakekeeper:
+    <<: *restart
+    image: quay.io/lakekeeper/catalog:v0.14.2
+    profiles: [lake]
+    command: ["serve"]
+    environment: *lakekeeper-env
+    ports:
+      - "${LAKEKEEPER_PORT:-8181}:8181"
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # One-shot: bootstraps Lakekeeper and creates the warehouse on SeaweedFS. Idempotent.
+  lakekeeper-init:
+    image: curlimages/curl:8.23.0
+    profiles: [lake]
+    entrypoint: ["sh", "/bootstrap.sh"]
+    environment:
+      LAKEKEEPER_URL: http://lakekeeper:8181
+      WAREHOUSE_NAME: ${WAREHOUSE_NAME:?set in .env}
+      LAKE_BUCKET: ${LAKE_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_REGION: us-east-1
+    volumes:
+      - ./scripts/lakekeeper-bootstrap.sh:/bootstrap.sh:ro
+    depends_on:
+      lakekeeper:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
 volumes:
   pg_data:
   redpanda_data:
   seaweedfs_data:
+  catalog_db_data:
