@@ -69,37 +69,53 @@ def read_events(
 def test_insert_update_delete_arrive_in_order_with_tombstone(
     oltp_autocommit: Conn, bootstrap: str, registry_url: str
 ) -> None:
+    """Writes like the application does: every change carries its own simulated event_ts,
+    and a delete stamps its time first. SCD2 history (ADR-006) depends on that contract."""
     email = f"cdc-{uuid.uuid4().hex[:8]}@test.invalid"
+    created = datetime(2026, 1, 1, tzinfo=UTC)
+    changed = datetime(2026, 1, 1, 1, tzinfo=UTC)
+    deleted = datetime(2026, 1, 1, 2, tzinfo=UTC)
     row = oltp_autocommit.execute(
         "insert into customers (full_name, email, phone, address_line, city, country_code, "
         "home_lat, home_lon, event_ts) values ('CDC Test', %s, '1', 'x', 'y', 'IL', 32.0, 34.8, "
         "%s) returning customer_id",
-        (email, datetime(2026, 1, 1, tzinfo=UTC)),
+        (email, created),
     ).fetchone()
     assert row is not None
     customer_id = row[0]
     oltp_autocommit.execute(
-        "update customers set risk_tier = 'high' where customer_id = %s", (customer_id,)
+        "update customers set risk_tier = 'high', event_ts = %s where customer_id = %s",
+        (changed, customer_id),
     )
-    oltp_autocommit.execute("delete from customers where customer_id = %s", (customer_id,))
+    with oltp_autocommit.transaction():
+        oltp_autocommit.execute(
+            "update customers set event_ts = %s where customer_id = %s", (deleted, customer_id)
+        )
+        oltp_autocommit.execute("delete from customers where customer_id = %s", (customer_id,))
 
     events = read_events(
-        bootstrap, registry_url, "pg.public.customers", "customer_id", customer_id, 4
+        bootstrap, registry_url, "pg.public.customers", "customer_id", customer_id, 5
     )
 
-    assert len(events) == 4, f"expected c, u, d, tombstone; got {len(events)} events"
-    created, updated, deleted, tombstone = events
-    assert created is not None and updated is not None and deleted is not None
-    assert [created["op"], updated["op"], deleted["op"]] == ["c", "u", "d"]
+    assert len(events) == 5, f"expected c, u, u, d, tombstone; got {len(events)} events"
+    created_ev, updated, stamped, deleted_ev, tombstone = events
+    assert created_ev and updated and stamped and deleted_ev
+    assert [created_ev["op"], updated["op"], stamped["op"], deleted_ev["op"]] == [
+        "c",
+        "u",
+        "u",
+        "d",
+    ]
     assert tombstone is None, "delete must be followed by a tombstone (FR-CDC4)"
 
-    assert created["after"]["email"] == email
+    assert created_ev["after"]["email"] == email
     # Replica identity full: updates and deletes carry the complete prior row.
     assert updated["before"]["risk_tier"] == "low"
     assert updated["after"]["risk_tier"] == "high"
-    assert deleted["before"]["email"] == email
-    assert deleted["after"] is None
-    assert created["source"]["ts_ms"] > 0
+    assert deleted_ev["before"]["email"] == email
+    assert datetime.fromisoformat(deleted_ev["before"]["event_ts"]) == deleted
+    assert deleted_ev["after"] is None
+    assert created_ev["source"]["ts_ms"] > 0
 
 
 def test_schema_registry_enforces_backward_compatibility(registry_url: str) -> None:

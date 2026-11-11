@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -124,3 +124,9 @@ dbt-run: ## dbt: run models only
 
 dbt-test: ## dbt: run tests only
 	cd dbt && uv run dbt test --profiles-dir .
+
+silver-reconcile: ## DQ-08: Postgres and silver agree row for row; records to lake.ops.dq_results
+	uv run python scripts/silver_reconcile.py
+
+phase2-gate: ## Phase 2 gate: bronze exact, dbt (silver + SCD2) passes, silver == Postgres, >= 3 sim days
+	scripts/phase2-gate.sh

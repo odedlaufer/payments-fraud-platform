@@ -84,7 +84,13 @@ def test_updated_at_moves_on_update(oltp: Conn) -> None:
         )
         assert changed is True
     finally:
+        # Committed writes reach CDC and SCD2 history, so clean up like the application
+        # does: a delete first stamps its own (later) event_ts (ADR-006).
         oltp.rollback()
+        oltp.execute(
+            "update customers set event_ts = event_ts + interval '1 hour' where customer_id = %s",
+            (customer_id,),
+        )
         oltp.execute("delete from customers where customer_id = %s", (customer_id,))
         oltp.commit()
 

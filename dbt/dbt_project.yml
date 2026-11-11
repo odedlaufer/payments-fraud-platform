@@ -12,6 +12,12 @@ clean-targets: [target, dbt_packages]
 flags:
   send_anonymous_usage_stats: false
 
+# Failing tests keep their rows in lake.dq_failures.<test>, so a failure names the bad keys.
+data_tests:
+  payments:
+    +store_failures: true
+    +schema: dq_failures
+
 models:
   payments:
     staging:
