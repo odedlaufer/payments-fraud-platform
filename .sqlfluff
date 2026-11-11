@@ -1,0 +1,12 @@
+[sqlfluff]
+dialect = trino
+templater = raw
+max_line_length = 120
+exclude_rules = LT05
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Secrets
+.env
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+
+# Local data
+data/
+*.duckdb
+*.duckdb.wal
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
