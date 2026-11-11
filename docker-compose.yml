@@ -9,7 +9,7 @@ x-restart: &restart
 services:
   postgres:
     <<: *restart
-    image: postgres:16.6
+    image: postgres:16.15
     profiles: [core]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set in .env}
@@ -31,7 +31,7 @@ services:
 
   redpanda:
     <<: *restart
-    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.2
     profiles: [core]
     command:
       - redpanda
@@ -64,12 +64,12 @@ services:
 
   console:
     <<: *restart
-    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    image: docker.redpanda.com/redpandadata/console:v3.13.1
     profiles: [core]
     environment:
       KAFKA_BROKERS: redpanda:9092
-      KAFKA_SCHEMAREGISTRY_ENABLED: "true"
-      KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
+      SCHEMAREGISTRY_ENABLED: "true"
+      SCHEMAREGISTRY_URLS: http://redpanda:8081
       REDPANDA_ADMINAPI_ENABLED: "true"
       REDPANDA_ADMINAPI_URLS: http://redpanda:9644
     ports:
@@ -116,7 +116,7 @@ services:
   # Postgres for the Iceberg catalog only, isolated from the OLTP source (ADR-002).
   catalog-db:
     <<: *restart
-    image: postgres:16.6
+    image: postgres:16.15
     profiles: [lake]
     environment:
       POSTGRES_USER: ${CATALOG_DB_USER:?set in .env}
