@@ -343,6 +343,60 @@ services:
         limits:
           memory: 2560m
 
+  # Flink session cluster (ADR-001, ADR-002): one JobManager, one TaskManager.
+  flink-jobmanager:
+    <<: *restart
+    build: ./flink
+    image: payments-fraud-platform/flink:2.1.3-iceberg-1.12.0
+    profiles: [stream]
+    command: jobmanager
+    environment: &flink-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 768m
+        taskmanager.memory.process.size: 1792m
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 1
+      # S3FileIO reads these through the AWS SDK default credential chain.
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_REGION: us-east-1
+    ports:
+      - "127.0.0.1:${FLINK_UI_PORT:-8081}:8081"
+    volumes:
+      - ./flink/sql:/opt/flink/sql:ro
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /overview HTTP/1.0\r\n\r\n' >&3 && grep -q '200 OK' <&3
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+    depends_on:
+      lakekeeper-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 1024m
+
+  flink-taskmanager:
+    <<: *restart
+    image: payments-fraud-platform/flink:2.1.3-iceberg-1.12.0
+    profiles: [stream]
+    command: taskmanager
+    environment: *flink-env
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2048m
+
 volumes:
   pg_data:
   redpanda_data:

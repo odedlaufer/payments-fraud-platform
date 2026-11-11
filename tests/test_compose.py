@@ -12,7 +12,7 @@ SERVICES: dict[str, dict[str, Any]] = COMPOSE["services"]
 ONE_SHOT = {name for name, svc in SERVICES.items() if svc.get("restart") == "no"}
 LONG_RUNNING = sorted(set(SERVICES) - ONE_SHOT)
 # Services checked over HTTP by scripts/health.sh instead of a container healthcheck.
-HEALTHCHECKED_EXTERNALLY = {"console"}
+HEALTHCHECKED_EXTERNALLY = {"console", "flink-taskmanager"}
 
 EXPECTED_SERVICES = {
     "postgres",
@@ -28,6 +28,8 @@ EXPECTED_SERVICES = {
     "lakekeeper",
     "lakekeeper-init",
     "trino",
+    "flink-jobmanager",
+    "flink-taskmanager",
 }
 
 
@@ -105,3 +107,30 @@ def test_connect_image_pins_avro_converter_checksum() -> None:
     assert len(sha) == 1
     value = sha[0].split("=", 1)[1]
     assert len(value) == 64 and all(c in "0123456789abcdef" for c in value), value
+
+
+def test_flink_sql_uses_configured_warehouse_and_no_credentials() -> None:
+    sql = (ROOT / "flink/sql/checks/iceberg_write_check.sql").read_text()
+    env = (ROOT / ".env.example").read_text().splitlines()
+    warehouse = next(line.split("=", 1)[1] for line in env if line.startswith("WAREHOUSE_NAME="))
+    assert f"'warehouse' = '{warehouse}'" in sql
+    # Credentials come from the container environment, never from catalog options.
+    assert "'s3.access-key-id'" not in sql and "'s3.secret-access-key'" not in sql
+
+
+def test_flink_jars_are_locked() -> None:
+    """Every jar in flink/jars.txt is pinned by SHA-256 in flink/jars.lock."""
+    wanted = [
+        line.strip()
+        for line in (ROOT / "flink/jars.txt").read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    locked = [
+        line.split()
+        for line in (ROOT / "flink/jars.lock").read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert [url for _, _, url in locked] == wanted, "jars.lock is stale: run make lock-jars"
+    for sha, name, url in locked:
+        assert len(sha) == 64 and all(c in "0123456789abcdef" for c in sha), name
+        assert url.rsplit("/", 1)[1] == name

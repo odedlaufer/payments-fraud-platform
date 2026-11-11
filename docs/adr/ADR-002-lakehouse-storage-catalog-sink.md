@@ -80,3 +80,12 @@ The matrix is accepted only when both checks pass, and any change to it repeats 
 - Two extra containers (`lakekeeper`, `catalog-db`) in the `lake` profile.
 - Every engine is configured with the same three things: the Lakekeeper REST URI, the warehouse name, and SeaweedFS path-style S3 settings.
 - If Lakekeeper or SeaweedFS stops being maintained, the replacement is any Iceberg REST catalog or S3 store; the engines do not change.
+
+## Verification record
+
+| Check | Date | Result |
+| --- | --- | --- |
+| 1. Trino creates, writes, reads an Iceberg table via Lakekeeper on SeaweedFS (`make gate`) | 2026-11-11 | Passed |
+| 2. Flink 2.1.3 writes an Iceberg table via Lakekeeper; Trino reads it back (`make flink-check`) | 2026-11-11 | Passed |
+
+Lakekeeper warehouses are created with `remote-signing-enabled: false` and `sts-enabled: false`: Trino and Flink use their own S3 credentials from their environment.

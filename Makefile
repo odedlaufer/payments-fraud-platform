@@ -1,10 +1,10 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
-COMPOSE_PROFILES ?= core,lake
+COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -97,3 +97,9 @@ phase1-gate: ## Phase 1 gate: >=10,000 simulated transactions, then CDC must mat
 	@uv run simulator seed 2>/dev/null || echo "reference data already present"
 	uv run simulator run --fast --max-transactions 10000 --change-rate 5
 	uv run python scripts/cdc_reconcile.py
+
+flink-check: ## ADR-002 verification 2: Flink writes Iceberg via Lakekeeper, Trino reads it
+	scripts/flink-iceberg-check.sh
+
+lock-jars: ## Regenerate flink/jars.lock from flink/jars.txt (verifies Maven SHA-1, pins SHA-256)
+	scripts/lock-jars.sh flink/jars.txt > flink/jars.lock.tmp && mv flink/jars.lock.tmp flink/jars.lock

@@ -1,0 +1,14 @@
+# Jars added to /opt/flink/lib. Versions follow ADR-002 (Flink 2.1.3, Iceberg 1.12.0).
+# After editing, regenerate the lock: make lock-jars
+
+# Iceberg: Flink runtime + AWS bundle (S3FileIO, REST catalog HTTP client)
+https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-flink-runtime-2.1/1.12.0/iceberg-flink-runtime-2.1-1.12.0.jar
+https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.12.0/iceberg-aws-bundle-1.12.0.jar
+
+# Hadoop classes that Iceberg's Flink integration still loads (shaded client, no HDFS)
+https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client-api/3.4.1/hadoop-client-api-3.4.1.jar
+https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-client-runtime/3.4.1/hadoop-client-runtime-3.4.1.jar
+
+# Kafka source/sink and Confluent Avro format for CDC topics
+https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/5.0.0-2.1/flink-sql-connector-kafka-5.0.0-2.1.jar
+https://repo1.maven.org/maven2/org/apache/flink/flink-sql-avro-confluent-registry/2.1.3/flink-sql-avro-confluent-registry-2.1.3.jar
