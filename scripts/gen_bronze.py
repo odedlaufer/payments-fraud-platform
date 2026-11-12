@@ -27,7 +27,6 @@ TRINO_DDL = ROOT / "trino/ddl/bronze.sql"
 FLINK_JOB = ROOT / "flink/sql/bronze/bronze_cdc.sql"
 STAGING_DIR = ROOT / "dbt/models/staging"
 TABLES = ("customers", "cards", "merchants", "sessions", "transactions", "chargebacks")
-CHECKPOINT_INTERVAL = "60s"  # also the Iceberg commit interval (FR-F5)
 
 
 @dataclass(frozen=True)
@@ -128,13 +127,14 @@ WITH (format = 'PARQUET', partitioning = ARRAY['day(commit_ts)']);
 def flink_job(columns: dict[str, list[Column]]) -> str:
     out = [
         HEADER,
-        f"""
+        """
 -- Bronze sink (FR-F5): append every Debezium change event to lake.bronze.cdc_*.
 -- Exactly-once: Kafka offsets and Iceberg commits are both tied to checkpoints.
+-- The checkpoint interval, which is also the Iceberg commit interval, comes from the
+-- cluster config (FLINK_CHECKPOINT_INTERVAL, default 60s as in FR-F5).
 
 SET 'pipeline.name' = 'bronze-cdc';
 SET 'execution.runtime-mode' = 'streaming';
-SET 'execution.checkpointing.interval' = '{CHECKPOINT_INTERVAL}';
 SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
 
 CREATE CATALOG lake WITH (

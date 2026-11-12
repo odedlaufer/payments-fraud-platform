@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -107,8 +107,8 @@ lock-jars: ## Regenerate flink/jars.lock from flink/jars.txt (verifies Maven SHA
 gen-bronze: ## Regenerate bronze DDL (Trino) and the bronze Flink job from the Postgres schema
 	uv run python scripts/gen_bronze.py
 
-flink-jobs: ## Submit long-running Flink jobs that are not already running
-	docker compose run --rm flink-jobs
+flink-jobs: ## One pass: submit long-running Flink jobs that are not active (the supervisor also does this)
+	docker compose run --rm --no-deps flink-jobs bash /submit-flink-jobs.sh
 
 bronze-reconcile: ## Every CDC event is in bronze exactly once (waits for the 60 s commits)
 	uv run python scripts/bronze_reconcile.py
@@ -130,3 +130,11 @@ silver-reconcile: ## DQ-08: Postgres and silver agree row for row; records to la
 
 phase2-gate: ## Phase 2 gate: bronze exact, dbt (silver + SCD2) passes, silver == Postgres, >= 3 sim days
 	scripts/phase2-gate.sh
+
+schema-evolve: ## DC-4: apply a Postgres schema change through bronze and silver without data loss
+	scripts/schema-evolve.sh
+
+quick-check: ## Fast end-to-end check after a change: bronze exact, dbt run, DQ-08 (about 30 s)
+	uv run python scripts/bronze_reconcile.py --settle-seconds 2 | tail -1
+	cd dbt && uv run dbt run --profiles-dir . | grep -E "ERROR|Done\\."
+	uv run python scripts/silver_reconcile.py --no-record | tail -1

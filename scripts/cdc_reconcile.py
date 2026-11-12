@@ -30,7 +30,7 @@ TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cards": ("card_id", ("status", "credit_limit")),
     "merchants": ("merchant_id", ("mcc", "category", "status")),
     "sessions": ("session_id", ("device_id", "ip_country")),
-    "transactions": ("transaction_id", ("status", "amount", "currency")),
+    "transactions": ("transaction_id", ("status", "amount", "currency", "device_risk_score")),
     "chargebacks": ("chargeback_id", ("transaction_id", "amount")),
 }
 

@@ -4,6 +4,7 @@ import random
 import statistics
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -176,3 +177,15 @@ def test_rejects_naive_start() -> None:
     world = make_world()
     with pytest.raises(ValueError):
         Engine(world, MemoryStore(world), seed=1, tx_per_sim_second=1, start=datetime(2026, 1, 1))
+
+
+def test_device_risk_score_on_online_transactions_only(day: tuple[Engine, MemoryStore]) -> None:
+    """FR-SIM7 column: online transactions carry the session device's risk, card-present none."""
+    _, store = day
+    online = [r for r in store.transactions.values() if r["channel"] == "online"]
+    present = [r for r in store.transactions.values() if r["channel"] == "card_present"]
+    assert all(r["device_risk_score"] is None for r in present)
+    scores = [Decimal(str(r["device_risk_score"])) for r in online]
+    assert all(0 <= s <= 1 for s in scores)
+    high = sum(1 for s in scores if s >= Decimal("0.6"))
+    assert 0 < high < len(scores) * 0.2, "new devices are rare and score high"

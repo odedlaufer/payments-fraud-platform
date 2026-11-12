@@ -39,7 +39,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384m
+          memory: 256m
 
   # One-shot: applies versioned OLTP migrations (postgres/migrations), then exits 0.
   postgres-migrate:
@@ -69,7 +69,7 @@ services:
       - start
       - --mode=dev-container
       - --smp=1
-      - --memory=768M
+      - --memory=512M
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://127.0.0.1:${REDPANDA_KAFKA_PORT:-19092}
       - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
@@ -91,7 +91,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024m
+          memory: 768m
 
   # One-shot: sets service-account passwords from .env (postgres/roles.psql).
   postgres-roles:
@@ -193,7 +193,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          memory: 128m
 
   # S3-compatible object store for the Iceberg lakehouse (replaces MinIO, see ADR-002).
   # `mini` runs master, volume, filer and S3 gateway in one process and creates
@@ -224,7 +224,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 384m
 
   # Postgres for the Iceberg catalog only, isolated from the OLTP source (ADR-002).
   catalog-db:
@@ -245,7 +245,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          memory: 192m
 
   # One-shot: applies Lakekeeper's schema migrations, then exits 0.
   lakekeeper-migrate:
@@ -286,7 +286,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          memory: 128m
 
   # One-shot: bootstraps Lakekeeper and creates the warehouse on SeaweedFS. Idempotent.
   lakekeeper-init:
@@ -362,6 +362,9 @@ services:
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 1
         state.backend.type: hashmap
+        # Also the Iceberg commit interval for bronze (FR-F5: 60s). Lower it locally,
+        # e.g. 10s, to make verification faster.
+        execution.checkpointing.interval: ${FLINK_CHECKPOINT_INTERVAL:-60s}
         execution.checkpointing.dir: s3://lake/flink/checkpoints
         execution.checkpointing.savepoint-dir: s3://lake/flink/savepoints
         execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
@@ -427,27 +430,34 @@ services:
         limits:
           memory: 384m
 
-  # One-shot: submits long-running Flink SQL jobs that are not already running.
+  # Supervisor: keeps the long-running Flink SQL jobs running, resubmitting any that a
+  # JobManager restart has lost (no Flink HA store in this stack).
   flink-jobs:
+    <<: *restart
     image: payments-fraud-platform/flink:2.1.3-iceberg-1.12.0
     profiles: [stream]
-    command: ["bash", "/submit-flink-jobs.sh"]
+    command: ["bash", "/submit-flink-jobs.sh", "--supervise"]
     environment: *flink-env
     volumes:
       - ./flink/sql:/opt/flink/sql:ro
       - ./scripts/submit-flink-jobs.sh:/submit-flink-jobs.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/supervisor.alive) )) -lt 120"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
     depends_on:
-      flink-taskmanager:
-        condition: service_started
+      flink-jobmanager:
+        condition: service_healthy
       bronze-ddl:
         condition: service_completed_successfully
       connect-init:
         condition: service_completed_successfully
-    restart: "no"
     deploy:
       resources:
         limits:
-          memory: 768m
+          memory: 512m
 
 volumes:
   pg_data:

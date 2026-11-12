@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 
 
 @dataclass
@@ -13,6 +14,7 @@ class CustomerState:
     devices: list[str] = field(default_factory=list)
     last_session_id: int | None = None
     last_session_at: datetime | None = None
+    last_session_risk: Decimal | None = None
 
 
 @dataclass

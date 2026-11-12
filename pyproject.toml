@@ -46,7 +46,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "RUF"]
 [tool.ruff.lint.isort]
 # trino/ in the repo is Trino server config, not the Python client.
 known-third-party = ["trino"]
-known-first-party = ["simulator", "cdc_reconcile"]
+known-first-party = ["simulator", "cdc_reconcile", "gen_bronze"]
 
 [tool.mypy]
 python_version = "3.12"
