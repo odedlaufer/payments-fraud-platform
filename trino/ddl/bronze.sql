@@ -68,8 +68,8 @@ WITH (format = 'PARQUET', partitioning = ARRAY['day(commit_ts)']);
 
 CREATE TABLE IF NOT EXISTS lake.bronze.cdc_transactions (
     op varchar,
-    before ROW(transaction_id bigint, card_id bigint, merchant_id bigint, session_id bigint, amount decimal(12,2), currency varchar, channel varchar, status varchar, lat double, lon double, event_ts varchar, created_at varchar, updated_at varchar),
-    after ROW(transaction_id bigint, card_id bigint, merchant_id bigint, session_id bigint, amount decimal(12,2), currency varchar, channel varchar, status varchar, lat double, lon double, event_ts varchar, created_at varchar, updated_at varchar),
+    before ROW(transaction_id bigint, card_id bigint, merchant_id bigint, session_id bigint, amount decimal(12,2), currency varchar, channel varchar, status varchar, lat double, lon double, event_ts varchar, created_at varchar, updated_at varchar, device_risk_score decimal(5,4)),
+    after ROW(transaction_id bigint, card_id bigint, merchant_id bigint, session_id bigint, amount decimal(12,2), currency varchar, channel varchar, status varchar, lat double, lon double, event_ts varchar, created_at varchar, updated_at varchar, device_risk_score decimal(5,4)),
     commit_ts timestamp(6) with time zone,
     lsn bigint,
     tx_id bigint,

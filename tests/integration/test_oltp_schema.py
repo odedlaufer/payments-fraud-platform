@@ -207,3 +207,18 @@ def test_debezium_role_is_least_privilege(oltp: Conn, env: dict[str, str]) -> No
         dbz.rollback()
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             dbz.execute("delete from public.customers")
+
+
+def test_device_risk_score_column(oltp: Conn) -> None:
+    """FR-SIM7: nullable, bounded to [0, 1]."""
+    row = oltp.execute(
+        "select is_nullable, numeric_precision, numeric_scale from information_schema.columns "
+        "where table_name = 'transactions' and column_name = 'device_risk_score'"
+    ).fetchone()
+    assert row == ("YES", 5, 4)
+    _customer(oltp)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        oltp.execute(
+            "insert into transactions (card_id, merchant_id, amount, currency, channel, "
+            "event_ts, device_risk_score) values (1, 1, 5, 'USD', 'online', now(), 1.5)"
+        )

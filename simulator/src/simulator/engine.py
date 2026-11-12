@@ -146,9 +146,14 @@ class Engine:
         reuse = timedelta(seconds=self.rates.session_reuse_s)
         if cust.last_session_id and cust.last_session_at and at - cust.last_session_at < reuse:
             return cust.last_session_id
-        if self.rng.random() < self.rates.new_device_probability:
+        new_device = self.rng.random() < self.rates.new_device_probability
+        if new_device:
             cust.devices.append(self._device_id(cust.customer_id, len(cust.devices)))
-        device = self.rng.choice(cust.devices)
+            device = cust.devices[-1]
+        else:
+            device = self.rng.choice(cust.devices)
+        low, high = (0.6, 0.95) if new_device else (0.01, 0.3)
+        cust.last_session_risk = Decimal(str(round(self.rng.uniform(low, high), 4)))
         foreign = self.rng.random() < self.rates.foreign_ip_probability
         ip_country = self.rng.choice(COUNTRIES) if foreign else cust.country_code
         session_id = self.store.insert_session(cust.customer_id, device, self._ip(), ip_country, at)
@@ -189,6 +194,7 @@ class Engine:
             lat=None if online else round(merchant.lat + jitter, 6),
             lon=None if online else round(merchant.lon + jitter, 6),
             event_ts=at,
+            device_risk_score=cust.last_session_risk if online else None,
         )
         transaction_id = self.store.insert_transaction(txn)
         delay = self.rng.uniform(*self.rates.status_delay_s)

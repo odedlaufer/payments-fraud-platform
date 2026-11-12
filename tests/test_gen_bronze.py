@@ -65,10 +65,13 @@ def test_committed_job_covers_every_table_and_never_sim() -> None:
     assert "sim" not in gen.TABLES and "sim_truth" not in job
 
 
-def test_job_checkpoints_every_60s_exactly_once() -> None:
+def test_job_checkpoints_exactly_once_at_the_cluster_interval() -> None:
+    """FR-F5: 60 s by default; the interval is cluster config so dev can shorten it."""
     job = (ROOT / "flink/sql/bronze/bronze_cdc.sql").read_text()
-    assert "SET 'execution.checkpointing.interval' = '60s';" in job
     assert "SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';" in job
+    assert "SET 'execution.checkpointing.interval'" not in job
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "execution.checkpointing.interval: ${FLINK_CHECKPOINT_INTERVAL:-60s}" in compose
 
 
 def test_topic_patterns_match_exactly_their_topic() -> None:

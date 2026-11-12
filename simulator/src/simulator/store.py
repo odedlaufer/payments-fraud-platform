@@ -1,5 +1,6 @@
 """Where the engine's writes go: Postgres in production, memory in unit tests."""
 
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +25,7 @@ class NewTransaction:
     lat: float | None
     lon: float | None
     event_ts: datetime
+    device_risk_score: Decimal | None = None
 
 
 class Store(Protocol):
@@ -55,9 +57,27 @@ MERCHANT_COLUMNS = {"mcc", "category", "status"}
 class PostgresStore:
     """Writes through one connection; the caller decides when to commit."""
 
+    # How often to re-check optional columns, so a migration applied mid-run is picked up.
+    COLUMN_CHECK_S = 10.0
+
     def __init__(self, conn: Conn) -> None:
         self.conn = conn
         self.ops: Counter[tuple[str, str]] = Counter()
+        self._risk_column: bool | None = None
+        self._risk_checked_at = 0.0
+
+    def has_device_risk_column(self) -> bool:
+        """True once the FR-SIM7 migration has added transactions.device_risk_score."""
+        now = time.monotonic()
+        if self._risk_column is not True and now - self._risk_checked_at >= self.COLUMN_CHECK_S:
+            row = self.conn.execute(
+                "select exists (select 1 from information_schema.columns where "
+                "table_schema = 'public' and table_name = 'transactions' "
+                "and column_name = 'device_risk_score')"
+            ).fetchone()
+            self._risk_column = bool(row and row[0])
+            self._risk_checked_at = now
+        return bool(self._risk_column)
 
     def load_world(self) -> World:
         c = self.conn
@@ -135,21 +155,26 @@ class PostgresStore:
 
     def insert_transaction(self, txn: NewTransaction) -> int:
         self.ops["transactions", "insert"] += 1
+        columns = "card_id, merchant_id, session_id, amount, currency, channel, lat, lon, event_ts"
+        values: tuple[object, ...] = (
+            txn.card_id,
+            txn.merchant_id,
+            txn.session_id,
+            txn.amount,
+            txn.currency,
+            txn.channel,
+            txn.lat,
+            txn.lon,
+            txn.event_ts,
+        )
+        if self.has_device_risk_column():
+            columns += ", device_risk_score"
+            values += (txn.device_risk_score,)
+        placeholders = ", ".join(["%s"] * len(values))
         return self._returning_id(
-            "insert into transactions (card_id, merchant_id, session_id, amount, currency, "
-            "channel, lat, lon, event_ts) values (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            f"insert into transactions ({columns}) values ({placeholders}) "
             "returning transaction_id",
-            (
-                txn.card_id,
-                txn.merchant_id,
-                txn.session_id,
-                txn.amount,
-                txn.currency,
-                txn.channel,
-                txn.lat,
-                txn.lon,
-                txn.event_ts,
-            ),
+            values,
         )
 
     def update_transaction_status(self, transaction_id: int, status: str, at: datetime) -> None:

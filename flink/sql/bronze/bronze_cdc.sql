@@ -2,10 +2,11 @@
 
 -- Bronze sink (FR-F5): append every Debezium change event to lake.bronze.cdc_*.
 -- Exactly-once: Kafka offsets and Iceberg commits are both tied to checkpoints.
+-- The checkpoint interval, which is also the Iceberg commit interval, comes from the
+-- cluster config (FLINK_CHECKPOINT_INTERVAL, default 60s as in FR-F5).
 
 SET 'pipeline.name' = 'bronze-cdc';
 SET 'execution.runtime-mode' = 'streaming';
-SET 'execution.checkpointing.interval' = '60s';
 SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
 
 CREATE CATALOG lake WITH (
@@ -112,8 +113,8 @@ CREATE TEMPORARY TABLE kafka_sessions (
 );
 
 CREATE TEMPORARY TABLE kafka_transactions (
-    `before` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING>,
-    `after` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING>,
+    `before` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4)>,
+    `after` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4)>,
     `source` ROW<`ts_ms` BIGINT, `lsn` BIGINT, `txId` BIGINT, `snapshot` STRING>,
     `op` STRING,
     `ts_ms` BIGINT,
