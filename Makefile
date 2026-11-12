@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src scripts
+	uv run mypy tests simulator/src features/src scripts
 
 test: ## Run unit tests
 	uv run pytest
@@ -138,3 +138,7 @@ quick-check: ## Fast end-to-end check after a change: bronze exact, dbt run, DQ-
 	uv run python scripts/bronze_reconcile.py --settle-seconds 2 | tail -1
 	cd dbt && uv run dbt run --profiles-dir . | grep -E "ERROR|Done\\."
 	uv run python scripts/silver_reconcile.py --no-record | tail -1
+
+features-doc: ## Validate features/definitions.yml and regenerate docs/feature-catalogue.md
+	uv run features validate
+	uv run features catalogue

@@ -60,6 +60,8 @@ REQUIRED_FILES = [
     "scripts/evolve_bronze.py",
     "scripts/flink-savepoint-stop.sh",
     "scripts/schema-evolve.sh",
+    "features/definitions.yml",
+    "docs/feature-catalogue.md",
     "chaos/ch1-bronze.sh",
     "dbt/dbt_project.yml",
     "dbt/profiles.yml",

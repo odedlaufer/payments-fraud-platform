@@ -1,0 +1,140 @@
+# Feature definitions v1: the single source of truth for every feature (ADR-003).
+# Flink computes them online (Phase 3) and dbt recomputes them offline (Phase 4);
+# both are generated from or checked against this file, so they compute the same thing.
+
+version: 1
+
+semantics:
+  event_time: event_ts            # simulated time of the transaction (authorization)
+  time_precision: millisecond     # Flink rowtime is TIMESTAMP(3); offline truncates to match
+  window_bounds: inclusive        # a window w at event time t covers [t - w, t]
+  includes_current: true          # the current transaction is inside its own windows
+  ties: included                  # events with exactly the same event_ts see each other
+  watermark: 30s                  # events later than this go to dlq.late_events (FR-F6)
+  amounts: usd_equivalent         # simulator amounts are USD-equivalent; currency is a label
+  counted_transactions: all       # every transaction at creation, whatever its final status
+
+entities:
+  card: {key: card_id}
+  customer: {key: customer_id}
+  merchant: {key: merchant_id}
+
+features:
+  - name: txn_count_1m
+    version: 1
+    entity: card
+    kind: window_count
+    window: 1m
+    dtype: bigint
+    description: Transactions on the card in the last minute.
+
+  - name: txn_count_1h
+    version: 1
+    entity: card
+    kind: window_count
+    window: 1h
+    dtype: bigint
+    description: Transactions on the card in the last hour.
+
+  - name: txn_count_24h
+    version: 1
+    entity: card
+    kind: window_count
+    window: 24h
+    dtype: bigint
+    description: Transactions on the card in the last 24 hours.
+
+  - name: txn_amount_sum_1h
+    version: 1
+    entity: card
+    kind: window_sum
+    field: amount
+    window: 1h
+    dtype: decimal(18,2)
+    description: Sum of transaction amounts on the card in the last hour.
+
+  - name: txn_amount_sum_24h
+    version: 1
+    entity: card
+    kind: window_sum
+    field: amount
+    window: 24h
+    dtype: decimal(18,2)
+    description: Sum of transaction amounts on the card in the last 24 hours.
+
+  - name: distinct_merchants_1h
+    version: 1
+    entity: card
+    kind: window_count_distinct
+    field: merchant_id
+    window: 1h
+    dtype: bigint
+    description: Distinct merchants the card paid in the last hour (card testing).
+
+  - name: amount_vs_avg_30d
+    version: 1
+    entity: card
+    kind: ratio_to_prior_mean
+    field: amount
+    window: 30d
+    dtype: double
+    description: >-
+      Amount divided by the card's mean amount over the previous 30 days, excluding the
+      current transaction; null when the card has no earlier transaction in the window.
+
+  - name: km_from_last_txn
+    version: 1
+    entity: card
+    kind: distance_from_previous
+    filter: channel = 'card_present'
+    dtype: double
+    description: >-
+      Haversine distance in km to the card's previous card-present transaction; null for
+      online transactions and for the first card-present one (impossible travel).
+
+  - name: minutes_since_last_txn
+    version: 1
+    entity: card
+    kind: minutes_since_previous
+    filter: channel = 'card_present'
+    dtype: double
+    description: >-
+      Minutes since the card's previous card-present transaction; null for online
+      transactions and for the first card-present one (impossible travel).
+
+  - name: new_device_24h
+    version: 1
+    entity: customer
+    kind: first_seen_within
+    field: device_id
+    source: sessions
+    window: 24h
+    dtype: boolean
+    description: >-
+      True when the transaction's session device was first seen for this customer in the
+      last 24 hours; null for card-present transactions (no session). Account takeover.
+
+  - name: profile_change_24h
+    version: 1
+    entity: customer
+    kind: changed_within
+    columns: [email, phone, address_line]
+    source: customers
+    window: 24h
+    dtype: boolean
+    description: >-
+      True when the customer's email, phone or address changed in the last 24 hours,
+      from CDC updates to customers. Account takeover.
+
+  - name: merchant_refund_rate_7d
+    version: 1
+    entity: merchant
+    kind: status_rate
+    status: reversed
+    status_time: status_event_ts
+    window: 7d
+    dtype: double
+    description: >-
+      Reversals that happened at the merchant in the last 7 days, divided by its
+      transactions created in the last 7 days; null when it had none. Point in time:
+      a reversal counts from when it happened, not from when the transaction was created.
