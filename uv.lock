@@ -4,6 +4,7 @@ requires-python = "==3.12.*"
 
 [manifest]
 members = [
+    "payments-features",
     "payments-fraud-platform",
     "payments-simulator",
 ]
@@ -922,11 +923,23 @@ wheels = [
 ]
 
 [[package]]
+name = "payments-features"
+version = "0.1.0"
+source = { editable = "features" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = "==6.0.2" }]
+
+[[package]]
 name = "payments-fraud-platform"
 version = "0.1.0"
 source = { virtual = "." }
 default-groups = ["dbt", "dev"]
 dependencies = [
+    { name = "payments-features" },
     { name = "payments-simulator" },
 ]
 
@@ -950,7 +963,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "payments-simulator", editable = "simulator" }]
+requires-dist = [
+    { name = "payments-features", editable = "features" },
+    { name = "payments-simulator", editable = "simulator" },
+]
 
 [package.metadata.requires-dev]
 dbt = [

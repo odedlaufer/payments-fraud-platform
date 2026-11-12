@@ -1,0 +1,16 @@
+[project]
+name = "payments-features"
+version = "0.1.0"
+description = "Feature definitions shared by the online (Flink) and offline (dbt) paths (ADR-003)"
+requires-python = ">=3.12,<3.13"
+dependencies = ["pyyaml==6.0.2"]
+
+[project.scripts]
+features = "features.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "features"
