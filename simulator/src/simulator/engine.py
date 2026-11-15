@@ -15,7 +15,7 @@ from decimal import Decimal
 from faker import Faker
 
 from simulator.catalog import CATEGORIES, Category
-from simulator.geo import CITIES
+from simulator.geo import CITIES, haversine_km, nearest_city
 from simulator.rates import Rates
 from simulator.store import NewTransaction, Store
 from simulator.world import CustomerState, MerchantState, World
@@ -25,6 +25,8 @@ CURRENCY_BY_COUNTRY: dict[str, str] = {}
 for _city in CITIES:
     CURRENCY_BY_COUNTRY.setdefault(_city.country_code, _city.currency)
 COUNTRIES = sorted(CURRENCY_BY_COUNTRY)
+HIGH_VALUE_MCCS = ("5732", "4829", "4511", "7011")  # electronics, transfers, airlines, hotels
+FAR_KM = 3_000.0  # an impossible-travel attack lands at least this far from the card
 DAY_S = 86_400.0
 
 
@@ -74,12 +76,14 @@ class Engine:
         self._seq = 0
         self._tx_tokens = 0.0
         self._last_expiry_check = start
-        self._merchants_by_country: dict[str, list[int]] = {}
+        self._merchants_by_city: dict[int, list[int]] = {}
+        self._online_merchants: list[int] = []
         for m in world.merchants.values():
-            self._merchants_by_country.setdefault(m.country_code, []).append(m.merchant_id)
+            self._index_merchant(m)
         for cust in world.customers.values():
             if not cust.devices:
                 cust.devices.append(self._device_id(cust.customer_id, 0))
+            cust.home_city = nearest_city(cust.home_lat, cust.home_lon)
         # Transactions left pending by a previous run are finalised promptly.
         for transaction_id, _ in world.pending_transactions:
             self._schedule(start, self._finalise(transaction_id))
@@ -116,6 +120,10 @@ class Engine:
             (self.rates.card_limit_change, len(self.world.cards), self._change_limit),
             (self.rates.merchant_update, len(self.world.merchants), self._update_merchant),
             (self.rates.merchant_delete, len(self.world.merchants), self._delete_merchant),
+            (self.rates.trip_start, len(self.world.customers), self._start_trip),
+            (self.rates.card_testing_attacks, 1, self._attack_card_testing),
+            (self.rates.impossible_travel_attacks, 1, self._attack_impossible_travel),
+            (self.rates.account_takeover_attacks, 1, self._attack_account_takeover),
         )
         for rate, pool, action in processes:
             for _ in range(poisson(self.rng, rate * pool * days)):
@@ -160,13 +168,58 @@ class Engine:
         cust.last_session_id, cust.last_session_at = session_id, at
         return session_id
 
-    def _pick_merchant(self, cust: CustomerState) -> MerchantState | None:
-        local = self._merchants_by_country.get(cust.country_code)
-        if local and self.rng.random() < self.rates.home_country_share:
-            return self.world.merchants[self.rng.choice(local)]
-        if not self.world.merchants:
+    # ------------------------------------------------------------------- places
+
+    def _index_merchant(self, m: MerchantState) -> None:
+        self._merchants_by_city.setdefault(nearest_city(m.lat, m.lon), []).append(m.merchant_id)
+        if CATEGORY_BY_MCC.get(m.mcc, CATEGORIES[0]).online:
+            self._online_merchants.append(m.merchant_id)
+
+    def _live(self, ids: list[int]) -> list[int]:
+        return [i for i in ids if i in self.world.merchants]
+
+    def current_city(self, cust: CustomerState, at: datetime) -> int | None:
+        """Where the customer is: a city index, or None while travelling (online only)."""
+        if cust.trip_city is None:
+            return cust.home_city
+        assert cust.trip_arrive and cust.trip_leave and cust.trip_home
+        if at < cust.trip_arrive or cust.trip_leave <= at < cust.trip_home:
             return None
-        return self.world.merchants[self.rng.choice(list(self.world.merchants))]
+        if at < cust.trip_leave:
+            return cust.trip_city
+        cust.trip_city = cust.trip_arrive = cust.trip_leave = cust.trip_home = None
+        return cust.home_city
+
+    def _transit(self, a: int, b: int) -> timedelta:
+        km = haversine_km(CITIES[a].lat, CITIES[a].lon, CITIES[b].lat, CITIES[b].lon)
+        return timedelta(hours=km / self.rates.travel_kmh + self.rates.transit_buffer_h)
+
+    def _start_trip(self, at: datetime) -> None:
+        cust = self.world.customers[self.rng.choice(list(self.world.customers))]
+        if cust.trip_city is not None or self.current_city(cust, at) is None:
+            return
+        dest = self.rng.choice([i for i in range(len(CITIES)) if i != cust.home_city])
+        stay = timedelta(days=self.rng.uniform(*self.rates.trip_days))
+        cust.trip_city = dest
+        cust.trip_arrive = at + self._transit(cust.home_city, dest)
+        cust.trip_leave = cust.trip_arrive + stay
+        cust.trip_home = cust.trip_leave + self._transit(dest, cust.home_city)
+
+    def _pick_merchant(
+        self, cust: CustomerState, at: datetime
+    ) -> tuple[MerchantState, bool] | None:
+        """A merchant and whether the purchase is online. Card-present purchases only happen
+        in the city the customer is in, so legitimate travel never beats an airliner."""
+        city = self.current_city(cust, at)
+        local = self._live(self._merchants_by_city.get(city, [])) if city is not None else []
+        if local and self.rng.random() < self.rates.local_share:
+            merchant = self.world.merchants[self.rng.choice(local)]
+            category = CATEGORY_BY_MCC.get(merchant.mcc, CATEGORIES[0])
+            return merchant, category.online and self.rng.random() < 0.5
+        online = self._live(self._online_merchants)
+        if not online:
+            return None
+        return self.world.merchants[self.rng.choice(online)], True
 
     def _amount(self, category: Category) -> Decimal:
         value = category.amount_median * math.exp(self.rng.gauss(0, 0.6))
@@ -177,11 +230,11 @@ class Engine:
             return
         card = self.world.cards[self.rng.choice(list(self.world.cards))]
         cust = self.world.customers[card.customer_id]
-        merchant = self._pick_merchant(cust)
-        if merchant is None:
+        picked = self._pick_merchant(cust, at)
+        if picked is None:
             return
+        merchant, online = picked
         category = CATEGORY_BY_MCC.get(merchant.mcc, CATEGORIES[0])
-        online = category.online and self.rng.random() < 0.8
         session_id = self._session_for(cust, at) if online else None
         jitter = self.rng.uniform(-0.001, 0.001)
         txn = NewTransaction(
@@ -283,6 +336,164 @@ class Engine:
         if len(self.world.merchants) <= 1:
             return
         merchant_id = self.rng.choice(list(self.world.merchants))
-        merchant = self.world.merchants.pop(merchant_id)
-        self._merchants_by_country[merchant.country_code].remove(merchant_id)
+        self.world.merchants.pop(merchant_id)
         self.store.delete_merchant(merchant_id, at)
+
+    # --------------------------------------------------------------- fraud (FR-SIM3)
+
+    def _fraud(
+        self,
+        card_id: int,
+        merchant_id: int,
+        amount: Decimal,
+        pattern: str,
+        *,
+        session_id: int | None = None,
+        risk: Decimal | None = None,
+        card_present: bool = False,
+    ) -> Callable[[datetime], None]:
+        """A labelled fraudulent transaction, created when its scheduled time comes."""
+
+        def run(at: datetime) -> None:
+            merchant = self.world.merchants.get(merchant_id)
+            if merchant is None or card_id not in self.world.cards:
+                return
+            jitter = self.rng.uniform(-0.001, 0.001)
+            txn = NewTransaction(
+                card_id=card_id,
+                merchant_id=merchant_id,
+                session_id=session_id,
+                amount=amount,
+                currency=CURRENCY_BY_COUNTRY.get(merchant.country_code, "USD"),
+                channel="card_present" if card_present else "online",
+                lat=round(merchant.lat + jitter, 6) if card_present else None,
+                lon=round(merchant.lon + jitter, 6) if card_present else None,
+                event_ts=at,
+                device_risk_score=None if card_present else risk,
+            )
+            transaction_id = self.store.insert_transaction(txn)
+            self.store.insert_truth(transaction_id, pattern)
+            delay = self.rng.uniform(*self.rates.status_delay_s)
+            self._schedule(at + timedelta(seconds=delay), self._finalise(transaction_id, card_id))
+
+        return run
+
+    def _active_card(self) -> int | None:
+        active = [c.card_id for c in self.world.cards.values() if c.status == "active"]
+        return self.rng.choice(active) if active else None
+
+    def _attack_card_testing(self, at: datetime) -> None:
+        """Stolen card numbers checked with tiny online payments at many merchants."""
+        card_id = self._active_card()
+        online = self._live(self._online_merchants)
+        if card_id is None or len(online) < 6:
+            return
+        when = at
+        for merchant_id in self.rng.sample(online, min(len(online), self.rng.randint(6, 15))):
+            when += timedelta(seconds=self.rng.uniform(10, 90))
+            amount = Decimal(str(round(self.rng.uniform(0.5, 4.99), 2))).quantize(Decimal("0.01"))
+            self._schedule(when, self._fraud(card_id, merchant_id, amount, "card_testing"))
+
+    def _attack_impossible_travel(self, at: datetime) -> None:
+        """A cloned card used in person far away, minutes after the owner used it at home."""
+        card_id = self._active_card()
+        if card_id is None:
+            return
+        cust = self.world.customers[self.world.cards[card_id].customer_id]
+        city = self.current_city(cust, at)
+        if city is None:
+            return
+        home = [
+            m
+            for m in self._live(self._merchants_by_city.get(city, []))
+            if not CATEGORY_BY_MCC.get(self.world.merchants[m].mcc, CATEGORIES[0]).online
+        ]
+        far = [i for i in range(len(CITIES)) if self._km(city, i) >= FAR_KM]
+        far_merchants = [m for i in far for m in self._live(self._merchants_by_city.get(i, []))]
+        if not home or not far_merchants:
+            return
+        legit = self.world.merchants[self.rng.choice(home)]
+        self._schedule(at, self._card_present(card_id, legit.merchant_id))
+        clone = self.world.merchants[self.rng.choice(far_merchants)]
+        category = CATEGORY_BY_MCC.get(clone.mcc, CATEGORIES[0])
+        when = at + timedelta(minutes=self.rng.uniform(5, 90))
+        self._schedule(
+            when,
+            self._fraud(
+                card_id,
+                clone.merchant_id,
+                self._amount(category),
+                "impossible_travel",
+                card_present=True,
+            ),  # fmt: skip
+        )
+
+    def _km(self, a: int, b: int) -> float:
+        return haversine_km(CITIES[a].lat, CITIES[a].lon, CITIES[b].lat, CITIES[b].lon)
+
+    def _card_present(self, card_id: int, merchant_id: int) -> Callable[[datetime], None]:
+        """A legitimate in-person purchase by the card owner (not labelled)."""
+
+        def run(at: datetime) -> None:
+            merchant = self.world.merchants.get(merchant_id)
+            if merchant is None or card_id not in self.world.cards:
+                return
+            category = CATEGORY_BY_MCC.get(merchant.mcc, CATEGORIES[0])
+            jitter = self.rng.uniform(-0.001, 0.001)
+            transaction_id = self.store.insert_transaction(
+                NewTransaction(
+                    card_id=card_id,
+                    merchant_id=merchant_id,
+                    session_id=None,
+                    amount=self._amount(category),
+                    currency=CURRENCY_BY_COUNTRY.get(merchant.country_code, "USD"),
+                    channel="card_present",
+                    lat=round(merchant.lat + jitter, 6),
+                    lon=round(merchant.lon + jitter, 6),
+                    event_ts=at,
+                )
+            )
+            delay = self.rng.uniform(*self.rates.status_delay_s)
+            self._schedule(at + timedelta(seconds=delay), self._finalise(transaction_id, card_id))
+
+        return run
+
+    def _attack_account_takeover(self, at: datetime) -> None:
+        """Contact details changed, a new device logs in from abroad, then big online spend."""
+        card_id = self._active_card()
+        high_value = [m for m in self._live(self._online_merchants)
+                      if self.world.merchants[m].mcc in HIGH_VALUE_MCCS]  # fmt: skip
+        if card_id is None or not high_value:
+            return
+        cust = self.world.customers[self.world.cards[card_id].customer_id]
+        email = f"{self.fake.user_name()}.{self.rng.randrange(10**6):06d}@example.net"
+        self.store.update_customer(cust.customer_id, "email", email, at)
+        login = at + timedelta(minutes=self.rng.uniform(10, 120))
+        abroad = self.rng.choice([c for c in COUNTRIES if c != cust.country_code])
+        device = f"dev-ato-{cust.customer_id}-{self.rng.randrange(10**6)}"
+        risk = Decimal(str(round(self.rng.uniform(0.8, 0.99), 4)))
+
+        def take_over(when: datetime) -> None:
+            session_id = self.store.insert_session(
+                cust.customer_id, device, self._ip(), abroad, when
+            )
+            spend = when
+            for merchant_id in self.rng.sample(
+                high_value, min(len(high_value), self.rng.randint(2, 4))
+            ):
+                spend += timedelta(minutes=self.rng.uniform(1, 20))
+                category = CATEGORY_BY_MCC.get(self.world.merchants[merchant_id].mcc, CATEGORIES[0])
+                amount = Decimal(str(round(category.amount_median * self.rng.uniform(3, 8), 2)))
+                self._schedule(
+                    spend,
+                    self._fraud(
+                        card_id,
+                        merchant_id,
+                        amount.quantize(Decimal("0.01")),
+                        "account_takeover",
+                        session_id=session_id,
+                        risk=risk,
+                    ),  # fmt: skip
+                )
+
+        self._schedule(login, take_over)

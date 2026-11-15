@@ -56,3 +56,10 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlmb = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlmb / 2) ** 2
     return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+def nearest_city(lat: float, lon: float) -> int:
+    """Index into CITIES of the city closest to a point."""
+    return min(
+        range(len(CITIES)), key=lambda i: haversine_km(lat, lon, CITIES[i].lat, CITIES[i].lon)
+    )

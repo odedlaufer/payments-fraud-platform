@@ -47,6 +47,7 @@ class Store(Protocol):
         self, merchant_id: int, changes: dict[str, object], at: datetime
     ) -> None: ...
     def delete_merchant(self, merchant_id: int, at: datetime) -> None: ...
+    def insert_truth(self, transaction_id: int, pattern: str) -> None: ...
 
 
 CUSTOMER_COLUMNS = {"email", "phone", "address_line", "risk_tier"}
@@ -220,6 +221,14 @@ class PostgresStore:
         )
         self.conn.execute("delete from merchants where merchant_id = %s", (merchant_id,))
 
+    def insert_truth(self, transaction_id: int, pattern: str) -> None:
+        """Ground truth for an injected fraud (FR-SIM3). sim.* is never captured by CDC."""
+        self.ops["sim_truth", "insert"] += 1
+        self.conn.execute(
+            "insert into sim.sim_truth (transaction_id, is_fraud, pattern) values (%s, true, %s)",
+            (transaction_id, pattern),
+        )
+
 
 class MemoryStore:
     """Records writes in memory for unit tests; assigns ids like identity columns."""
@@ -227,6 +236,7 @@ class MemoryStore:
     def __init__(self, world: World) -> None:
         self.world = world
         self.ops: Counter[tuple[str, str]] = Counter()
+        self.truth: dict[int, str] = {}
         self.transactions: dict[int, dict[str, object]] = {}
         self.sessions: dict[int, dict[str, object]] = {}
         self.log: list[tuple[str, str, int, object]] = []
@@ -287,3 +297,7 @@ class MemoryStore:
     def delete_merchant(self, merchant_id: int, at: datetime) -> None:
         self.ops["merchants", "delete"] += 1
         self.log.append(("merchants", "delete", merchant_id, at))
+
+    def insert_truth(self, transaction_id: int, pattern: str) -> None:
+        self.ops["sim_truth", "insert"] += 1
+        self.truth[transaction_id] = pattern

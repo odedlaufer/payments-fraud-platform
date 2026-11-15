@@ -126,9 +126,16 @@ def test_rules_v1_loads_with_card_features() -> None:
     assert rs.version == 1
     assert [r.id for r in rs.rules] == [
         "card_testing",
+        "impossible_travel",
         "velocity_burst",
         "spend_spike",
         "daily_spend",
     ]
     burst = {"txn_count_1h": 6, "distinct_merchants_1h": 5, "txn_count_1m": 3, "amount": 2.0}
     assert rs.evaluate(burst).outcome == "decline"
+    # 9,000 km in 60 minutes is impossible; 300 km in 60 minutes is a train ride
+    far = {"km_from_last_txn": 9000.0, "minutes_since_last_txn": 60.0}
+    assert rs.evaluate(far).fired == ("impossible_travel",)
+    near = {"km_from_last_txn": 300.0, "minutes_since_last_txn": 60.0}
+    assert rs.evaluate(near).fired == ()
+    assert rs.evaluate({"km_from_last_txn": None, "minutes_since_last_txn": None}).fired == ()
