@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src features/src scripts
+	uv run mypy tests simulator/src features/src decision_service/src scripts
 
 test: ## Run unit tests
 	uv run pytest
@@ -151,3 +151,6 @@ test-flink: ## Feature equality: the generated job in real Flink == the referenc
 
 features-check: ## Live: every features.card record equals the reference recomputed from Postgres
 	uv run python scripts/features_check.py
+
+online-check: ## Every card in Redis == the newest features.card record for that card (FR-F3)
+	uv run python scripts/online_check.py

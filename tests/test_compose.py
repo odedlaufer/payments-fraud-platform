@@ -32,6 +32,8 @@ EXPECTED_SERVICES = {
     "flink-taskmanager",
     "bronze-ddl",
     "flink-jobs",
+    "redis",
+    "feature-sink",
 }
 
 
