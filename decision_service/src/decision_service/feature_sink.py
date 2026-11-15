@@ -1,4 +1,4 @@
-"""feature-sink: features.card (Kafka) -> Redis card hashes (FR-F3).
+"""feature-sink: features.card and customer CDC (Kafka) -> Redis online state (FR-F3, ADR-007).
 
 Reads the topic from the beginning on every start: the online store is derived data
 and Redis keeps no persistence, so a restart rebuilds it. The newer-only write makes
@@ -24,6 +24,7 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 
+from decision_service.customer_sink import CDC_TOPICS, apply_cdc
 from decision_service.online_store import OnlineStore
 from features.model import load
 
@@ -44,7 +45,8 @@ def main() -> int:
     redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
     client = redis.Redis.from_url(redis_url, decode_responses=True)
-    store = OnlineStore(client, load())
+    defs = load()
+    store = OnlineStore(client, defs)
     run_id = redis_run_id(client)
     deserialize = AvroDeserializer(SchemaRegistryClient({"url": registry}))
     consumer = Consumer(
@@ -57,7 +59,7 @@ def main() -> int:
             "topic.metadata.refresh.interval.ms": 5000,
         }
     )
-    consumer.subscribe([TOPIC])
+    consumer.subscribe([TOPIC, *CDC_TOPICS])
 
     running = True
 
@@ -85,12 +87,15 @@ def main() -> int:
                 if error.code() != KafkaError.UNKNOWN_TOPIC_OR_PART:
                     print(f"feature-sink: {error}", file=sys.stderr, flush=True)
                 continue
-            value = msg.value()
-            if value is None:
+            value, topic = msg.value(), msg.topic()
+            if value is None or topic is None:
                 continue
             record = cast(
-                dict[str, Any], deserialize(value, SerializationContext(TOPIC, MessageField.VALUE))
+                dict[str, Any], deserialize(value, SerializationContext(topic, MessageField.VALUE))
             )
+            if topic != TOPIC:
+                apply_cdc(defs, store, topic, record)  # customer context (ADR-007)
+                continue
             now_ms = int(time.time() * 1000)
             commit_ms = record.get("commit_ms")
             if commit_ms is not None and now_ms - int(commit_ms) < FRESH_MS:

@@ -16,7 +16,15 @@ from pathlib import Path
 
 from decision_service.context import RULE_NAMES
 from features.model import load
-from features.reference import Txn, card_features
+from features.reference import (
+    CustomerTxn,
+    ProfileChange,
+    Session,
+    Txn,
+    card_features,
+    customer_features,
+)
+from features.timeparse import dt_to_ms
 from rules.engine import RuleSet
 from simulator.engine import Engine
 from simulator.entities import generate_population
@@ -60,6 +68,24 @@ def main() -> int:
         for i, r in rows
     ]  # fmt: skip
     features = card_features(load(), txns)
+    sessions = [
+        Session(sid, int(str(s["customer_id"])), str(s["device_id"]), dt_to_ms(s["event_ts"]))  # type: ignore[arg-type]
+        for sid, s in store.sessions.items()
+    ]
+    changes = [
+        ProfileChange(c, frozenset({col}), dt_to_ms(at)) for c, col, at in store.customer_updates
+    ]
+    owners = {card.card_id: card.customer_id for card in store.world.cards.values()}
+
+    def session_of(r: dict[str, object]) -> int | None:
+        return None if r["session_id"] is None else int(str(r["session_id"]))
+
+    asks = [
+        CustomerTxn(i, int(str(r["card_id"])), session_of(r), dt_to_ms(r["event_ts"]))  # type: ignore[arg-type]
+        for i, r in rows
+    ]
+    for i, values in customer_features(load(), asks, sessions, changes, owners).items():
+        features[i].update(values)
     ruleset = RuleSet.load(args.rules, RULE_NAMES)
     outcome: dict[int, str] = {}
     fired: dict[int, tuple[str, ...]] = {}

@@ -8,7 +8,7 @@ from typing import Any, cast
 import fastavro
 import pytest
 
-from decision_service.context import CARD_FEATURES, RULE_NAMES
+from decision_service.context import CARD_FEATURES, RULE_NAMES, SNAPSHOT_FEATURES
 from decision_service.decision import STALE, Transaction, avro_schema, decide
 from decision_service.online_store import CardFeatures
 from rules.engine import RuleSet
@@ -42,14 +42,19 @@ def snapshot(txn_id: int = 7, **values: object) -> CardFeatures:
     return CardFeatures(3, txn_id, 0, 1, "2026-01-04T10:00:00.500Z", 0, base)
 
 
-def run(snap: CardFeatures | None) -> dict[str, Any]:
-    return decide(TXN, snap, RULES, consumed_ms=1_100, features_ms=1_300 if snap else None,
-                  decided_ms=1_400)  # fmt: skip
+CUSTOMER = {"new_device_24h": None, "profile_change_24h": False}
+
+
+def run(snap: CardFeatures | None, customer: dict[str, Any] | None = CUSTOMER) -> dict[str, Any]:
+    ready = snap is not None and customer is not None
+    return decide(TXN, snap, customer, RULES, consumed_ms=1_100,
+                  features_ms=1_300 if ready else None, decided_ms=1_400)  # fmt: skip
 
 
 def test_parses_only_creations() -> None:
     assert TXN.event_ms == 1767520800123  # microseconds truncated to milliseconds
     assert (TXN.commit_ms, TXN.amount, TXN.device_risk_score) == (1_000, Decimal("4.50"), None)
+    assert TXN.session_id is None
     assert Transaction.from_debezium(event(op="u")) is None
     assert parse(event(risk=Decimal("0.75"))).device_risk_score == Decimal("0.75")
 
@@ -58,7 +63,20 @@ def test_no_snapshot_is_review_stale_never_approve() -> None:
     record = run(None)
     assert (record["decision"], record["reason"], record["fired_rules"]) == ("review", STALE, [])
     assert all(v is None for v in record["features"].values())
+    assert set(record["features"]) == set(SNAPSHOT_FEATURES)
     assert record["features_ms"] is None and record["definitions_version"] is None
+
+
+def test_card_snapshot_without_customer_context_is_still_stale() -> None:
+    record = run(snapshot(), customer=None)
+    assert (record["decision"], record["reason"]) == ("review", STALE)
+
+
+def test_customer_features_are_logged_and_reach_the_rules() -> None:
+    record = run(snapshot(), customer={"new_device_24h": True, "profile_change_24h": True})
+    assert record["features"]["new_device_24h"] is True
+    assert record["features"]["profile_change_24h"] is True
+    assert record["features"]["txn_count_1h"] == 1
 
 
 def test_rules_decide_on_the_snapshot() -> None:

@@ -70,6 +70,7 @@ REQUIRED_FILES = [
     "scripts/simulate_detection.py",
     "scripts/phase3-gate.sh",
     "rules/rules_v1.yml",
+    "rules/rules_v2.yml",
     "decision_service/Dockerfile",
     ".dockerignore",
     "chaos/ch1-bronze.sh",
