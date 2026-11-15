@@ -2,7 +2,8 @@
 
 Pure logic with no Kafka or Redis, so the decision contract is unit-tested directly:
 
-- the features must be this transaction's own snapshot (FR-D1, ADR-003 parity);
+- the features must be this transaction's own snapshot (FR-D1, ADR-003 parity), and
+  its customer features computed on demand for its own time (ADR-007);
 - no snapshot in time means `review` with reason `stale_features`, never an approve (FR-D4);
 - the record logs rules version, fired rules, the full snapshot and latency stamps (FR-D3).
 """
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from decision_service.context import CARD_FEATURES
+from decision_service.context import SNAPSHOT_FEATURES
 from decision_service.online_store import CardFeatures
 from features.model import load
 from features.timeparse import iso_to_ms
@@ -31,6 +32,7 @@ class Transaction:
     device_risk_score: Decimal | None
     event_ms: int
     commit_ms: int  # Debezium source.ts_ms: when Postgres committed it
+    session_id: int | None = None
 
     @classmethod
     def from_debezium(cls, event: dict[str, Any]) -> "Transaction | None":
@@ -49,6 +51,7 @@ class Transaction:
             ),
             event_ms=iso_to_ms(str(row["event_ts"])),
             commit_ms=int(event["source"]["ts_ms"]),
+            session_id=None if row.get("session_id") is None else int(row["session_id"]),
         )
 
 
@@ -64,6 +67,7 @@ def _snapshot_value(name: str, value: object) -> object:
 def decide(
     txn: Transaction,
     snapshot: CardFeatures | None,
+    customer: dict[str, Any] | None,
     ruleset: RuleSet,
     *,
     consumed_ms: int,
@@ -75,12 +79,13 @@ def decide(
             f"snapshot of transaction {snapshot.transaction_id} used for {txn.transaction_id}"
         )
     fired: tuple[str, ...] = ()
-    if snapshot is None:
+    if snapshot is None or customer is None:
         outcome, score, reason = "review", 0, STALE
-        values: dict[str, object] = {name: None for name in CARD_FEATURES}
+        values: dict[str, object] = {name: None for name in SNAPSHOT_FEATURES}
     else:
+        values = {**snapshot.values, **customer}
         context = {
-            **snapshot.values,
+            **values,
             "amount": txn.amount,
             "channel": txn.channel,
             "device_risk_score": txn.device_risk_score,
@@ -88,7 +93,6 @@ def decide(
         evaluation = ruleset.evaluate(context)
         outcome, score, fired = evaluation.outcome, evaluation.score, evaluation.fired
         reason = "rules" if fired else "no_rule_fired"
-        values = snapshot.values
     return {
         "transaction_id": txn.transaction_id,
         "card_id": txn.card_id,
@@ -100,7 +104,7 @@ def decide(
         "rules_version": ruleset.version,
         "reason": reason,
         "definitions_version": None if snapshot is None else snapshot.definitions_version,
-        "features": {name: _snapshot_value(name, values[name]) for name in CARD_FEATURES},
+        "features": {name: _snapshot_value(name, values[name]) for name in SNAPSHOT_FEATURES},
         "commit_ms": txn.commit_ms,
         "consumed_ms": consumed_ms,
         "features_ms": features_ms,
@@ -120,7 +124,8 @@ def avro_schema() -> dict[str, Any]:
             "type": ["null", "string" if f.dtype.startswith("decimal") else _AVRO[f.dtype]],
             "default": None,
         }
-        for f in DEFS.for_entity("card")
+        for f in DEFS.features
+        if f.entity in ("card", "customer")
     ]
     return {
         "type": "record",

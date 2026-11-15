@@ -237,6 +237,7 @@ class MemoryStore:
         self.world = world
         self.ops: Counter[tuple[str, str]] = Counter()
         self.truth: dict[int, str] = {}
+        self.customer_updates: list[tuple[int, str, datetime]] = []
         self.transactions: dict[int, dict[str, object]] = {}
         self.sessions: dict[int, dict[str, object]] = {}
         self.log: list[tuple[str, str, int, object]] = []
@@ -283,6 +284,7 @@ class MemoryStore:
         assert column in CUSTOMER_COLUMNS
         self.ops["customers", "update"] += 1
         self.log.append(("customers", column, customer_id, value))
+        self.customer_updates.append((customer_id, column, at))
 
     def update_card(self, card_id: int, column: str, value: object, at: datetime) -> None:
         assert column in CARD_COLUMNS

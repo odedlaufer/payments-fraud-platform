@@ -31,6 +31,7 @@ from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerialize
 from confluent_kafka.serialization import MessageField, SerializationContext
 
 from decision_service.context import RULE_NAMES
+from decision_service.customer_features import Ask, customer_values
 from decision_service.decision import Transaction, avro_schema, decide
 from decision_service.online_store import CardFeatures, OnlineStore
 from features.model import load
@@ -54,20 +55,29 @@ class Pending:
     deadline_ms: int
 
 
+Ready = tuple[Pending, CardFeatures | None, dict[str, Any] | None, int | None]
+
+
 @dataclass
 class Resolver:
-    """Pending transactions and which are ready to decide. No Kafka, so it is testable."""
+    """Pending transactions and which are ready to decide. No Kafka, so it is testable.
+
+    Ready means: the card feature snapshot has arrived and the customer context is
+    known (card owner, and the session for an online transaction).
+    """
 
     store: OnlineStore
     wait_ms: int
+    customers: Callable[[list[Ask]], dict[int, dict[str, Any]]]
     pending: dict[int, Pending] = field(default_factory=dict)
     skipped_duplicates: int = 0
 
     def add(self, p: Pending) -> None:
         self.pending[p.txn.transaction_id] = p
 
-    def resolve(self, now: int) -> list[tuple[Pending, CardFeatures | None, int | None]]:
-        """(pending, snapshot or None, features_ms) for every transaction ready to decide."""
+    def resolve(self, now: int) -> list[Ready]:
+        """(pending, snapshot, customer values, features_ms) for every transaction ready to
+        decide; snapshot or customer values are None when the deadline passed without them."""
         if not self.pending:
             return []
         ids = list(self.pending)
@@ -76,15 +86,21 @@ class Resolver:
                 del self.pending[txn_id]
                 self.skipped_duplicates += 1
             snapshots = self.store.get_transactions(list(self.pending))
+            asks = [
+                Ask(i, p.txn.card_id, p.txn.session_id, p.txn.event_ms)
+                for i, p in self.pending.items()
+                if i in snapshots
+            ]
+            customers = self.customers(asks) if asks else {}
         except redis.RedisError:
-            snapshots = {}
-        ready: list[tuple[Pending, CardFeatures | None, int | None]] = []
+            snapshots, customers = {}, {}
+        ready: list[Ready] = []
         for txn_id, p in list(self.pending.items()):
-            snap = snapshots.get(txn_id)
-            if snap is not None:
-                ready.append((p, snap, now))
+            snap, cust = snapshots.get(txn_id), customers.get(txn_id)
+            if snap is not None and cust is not None:
+                ready.append((p, snap, cust, now))
             elif now >= p.deadline_ms:
-                ready.append((p, None, None))
+                ready.append((p, snap, cust, None))
             else:
                 continue
             del self.pending[txn_id]
@@ -123,7 +139,8 @@ def main() -> int:
         {"bootstrap.servers": bootstrap, "enable.idempotence": True, "linger.ms": 5}
     )
     consumer.subscribe([SOURCE])
-    resolver = Resolver(store, wait_ms)
+    defs = load()
+    resolver = Resolver(store, wait_ms, lambda asks: customer_values(defs, store, asks))
     consumed: dict[int, int] = {}
 
     running = True
@@ -152,8 +169,8 @@ def main() -> int:
                 resolver.add(Pending(txn, part, offset, now_ms(), now_ms() + wait_ms))
         ready = resolver.resolve(now_ms())
         decided_ids = []
-        for p, snapshot, features_ms in ready:
-            record = decide(p.txn, snapshot, ruleset, consumed_ms=p.consumed_ms,
+        for p, snapshot, customer, features_ms in ready:
+            record = decide(p.txn, snapshot, customer, ruleset, consumed_ms=p.consumed_ms,
                             features_ms=features_ms, decided_ms=now_ms())  # fmt: skip
             producer.produce(
                 SINK,

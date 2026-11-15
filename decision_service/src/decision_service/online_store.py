@@ -38,6 +38,17 @@ META = ("transaction_id", "event_ms", "definitions_version", "computed_at", "wri
 # Per-transaction snapshots live just long enough for the decision service to read them.
 TRANSACTION_TTL_S = 120
 DECIDED_TTL_S = 600
+SESSION_TTL_S = 3 * 86_400  # a session is only looked up by transactions made during it
+
+# KEYS[1] = first:{feature}:{customer}; ARGV[1] = device; ARGV[2] = event_ms. Keeps the minimum.
+EARLIEST = """
+local current = redis.call('HGET', KEYS[1], ARGV[1])
+if (not current) or tonumber(ARGV[2]) < tonumber(current) then
+  redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+  return 1
+end
+return 0
+"""
 
 
 def card_key(card_id: int) -> str:
@@ -93,6 +104,7 @@ class OnlineStore:
         self.client = client
         self.features = defs.for_entity("card")
         self._newer_only = client.register_script(NEWER_ONLY)
+        self._earliest = client.register_script(EARLIEST)
 
     def fields(self, record: dict[str, Any], written_at_ms: int) -> list[str]:
         pairs: list[str] = []
@@ -166,6 +178,58 @@ class OnlineStore:
             written_at_ms=int(raw["written_at_ms"]),
             values={f.name: decode(raw.get(f.name, ""), f.dtype) for f in self.features},
         )
+
+    # ------------------------------------------------- customer context (ADR-007)
+
+    def set_owner(self, card_id: int, customer_id: int) -> None:
+        self.client.set(f"owner:{card_id}", str(customer_id))
+
+    def put_session(self, session_id: int, customer_id: int, device_id: str, event_ms: int) -> None:
+        key = f"session:{session_id}"
+        pipe = self.client.pipeline(transaction=False)
+        pipe.hset(key, mapping={"customer": customer_id, "device": device_id, "ms": event_ms})
+        pipe.expire(key, SESSION_TTL_S)
+        pipe.execute()
+
+    def see_device(self, feature: str, customer_id: int, device_id: str, event_ms: int) -> None:
+        self._earliest(keys=[f"first:{feature}:{customer_id}"], args=[device_id, event_ms])
+
+    def add_change(self, feature: str, customer_id: int, event_ms: int, keep_ms: int) -> None:
+        key = f"chg:{feature}:{customer_id}"
+        pipe = self.client.pipeline(transaction=False)
+        pipe.zadd(key, {str(event_ms): event_ms})
+        pipe.zremrangebyscore(key, "-inf", event_ms - keep_ms)  # older changes can't matter
+        pipe.execute()
+
+    def owners(self, card_ids: list[int]) -> dict[int, int]:
+        if not card_ids:
+            return {}
+        raws = self.client.mget([f"owner:{c}" for c in card_ids])
+        return {c: int(r) for c, r in zip(card_ids, raws, strict=True) if r is not None}
+
+    def sessions(self, session_ids: list[int]) -> dict[int, tuple[int, str, int]]:
+        """session_id -> (customer_id, device_id, event_ms), for sessions already seen."""
+        pipe = self.client.pipeline(transaction=False)
+        for sid in session_ids:
+            pipe.hgetall(f"session:{sid}")
+        found = {}
+        for sid, raw in zip(session_ids, pipe.execute(), strict=True):
+            if raw:
+                found[sid] = (int(raw["customer"]), str(raw["device"]), int(raw["ms"]))
+        return found
+
+    def first_seen(self, feature: str, pairs: list[tuple[int, str]]) -> list[int | None]:
+        pipe = self.client.pipeline(transaction=False)
+        for customer_id, device_id in pairs:
+            pipe.hget(f"first:{feature}:{customer_id}", device_id)
+        return [None if v is None else int(v) for v in pipe.execute()]
+
+    def changes_between(self, feature: str, queries: list[tuple[int, int, int]]) -> list[int]:
+        """For each (customer_id, lo_ms, hi_ms): changes with lo <= event_ms <= hi."""
+        pipe = self.client.pipeline(transaction=False)
+        for customer_id, lo, hi in queries:
+            pipe.zcount(f"chg:{feature}:{customer_id}", lo, hi)
+        return [int(n) for n in pipe.execute()]
 
     def get_card(self, card_id: int) -> CardFeatures | None:
         raw = cast(dict[str, str], self.client.hgetall(card_key(card_id)))

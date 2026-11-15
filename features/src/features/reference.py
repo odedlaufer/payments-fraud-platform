@@ -1,4 +1,4 @@
-"""Reference implementation of the card features, straight from the definitions.
+"""Reference implementation of the features, straight from the definitions.
 
 Plain Python with no streaming concerns: the oracle that the generated Flink job
 (and later the dbt offline model) must agree with, feature by feature (PRD 8.4).
@@ -102,3 +102,78 @@ def _previous_card_present(f: Feature, i: int, card_txns: list[Txn]) -> float | 
         return (t.event_ms - prev.event_ms) / 60000.0
     assert t.lat is not None and t.lon is not None and prev.lat is not None and prev.lon is not None
     return haversine_km(prev.lat, prev.lon, t.lat, t.lon)
+
+
+# ------------------------------------------------------------------ customer features
+
+
+@dataclass(frozen=True)
+class CustomerTxn:
+    """What the customer features need of a transaction. event_ms: truncated event time."""
+
+    transaction_id: int
+    card_id: int
+    session_id: int | None
+    event_ms: int
+
+
+@dataclass(frozen=True)
+class Session:
+    session_id: int
+    customer_id: int
+    device_id: str
+    event_ms: int
+
+
+@dataclass(frozen=True)
+class ProfileChange:
+    """An update to a customer row; `columns` are the ones whose value changed."""
+
+    customer_id: int
+    columns: frozenset[str]
+    event_ms: int
+
+
+def customer_features(
+    defs: Definitions,
+    txns: Iterable[CustomerTxn],
+    sessions: Iterable[Session],
+    changes: Iterable[ProfileChange],
+    card_owner: dict[int, int],
+) -> dict[int, dict[str, object]]:
+    """Customer feature values per transaction_id (ADR-007 semantics, inclusive windows)."""
+    by_id = {s.session_id: s for s in sessions}
+    first_seen: dict[tuple[int, str], int] = {}
+    for s in by_id.values():
+        key = (s.customer_id, s.device_id)
+        first_seen[key] = min(first_seen.get(key, s.event_ms), s.event_ms)
+    change_list = list(changes)
+    result: dict[int, dict[str, object]] = {}
+    for t in txns:
+        values: dict[str, object] = {}
+        for f in defs.for_entity("customer"):
+            lo = t.event_ms - _window_ms(f)
+            if f.kind == "first_seen_within":
+                session = by_id.get(t.session_id) if t.session_id is not None else None
+                if session is None:
+                    values[f.name] = None  # card-present, or no customer session
+                else:
+                    seen = first_seen[(session.customer_id, session.device_id)]
+                    values[f.name] = lo <= seen <= t.event_ms
+            elif f.kind == "changed_within":
+                customer = card_owner.get(t.card_id)
+                watched = frozenset(f.columns)
+                values[f.name] = (
+                    None
+                    if customer is None
+                    else any(
+                        c.customer_id == customer
+                        and c.columns & watched
+                        and lo <= c.event_ms <= t.event_ms
+                        for c in change_list
+                    )
+                )
+            else:
+                raise NotImplementedError(f"{f.name}: kind {f.kind} is not a customer feature")
+        result[t.transaction_id] = values
+    return result
