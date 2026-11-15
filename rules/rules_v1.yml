@@ -1,0 +1,31 @@
+version: 1
+description: >-
+  Baseline rules on card features. Thresholds were calibrated on 4 simulated days of
+  legitimate traffic (48,000 transactions, 2,672 cards): together they review or decline
+  about 0.07% of it. Impossible travel waits for the simulator's travel model (Phase 3.5),
+  because today legitimate card-present traffic jumps between countries.
+
+rules:
+  - id: card_testing
+    description: Many transactions at many merchants within an hour (testing stolen card numbers).
+    condition: txn_count_1h >= 5 and distinct_merchants_1h >= 4
+    action: decline
+    severity: 90
+
+  - id: velocity_burst
+    description: Three or more transactions on the card within a minute.
+    condition: txn_count_1m >= 3
+    action: review
+    severity: 60
+
+  - id: spend_spike
+    description: A large amount far above the card's usual spend.
+    condition: amount >= 1000 and amount_vs_avg_30d >= 30
+    action: review
+    severity: 50
+
+  - id: daily_spend
+    description: Unusually high total spend on the card in a day.
+    condition: txn_amount_sum_24h >= 4000
+    action: review
+    severity: 40

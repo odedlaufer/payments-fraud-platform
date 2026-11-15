@@ -5,12 +5,14 @@ description = "Online feature store sink and real-time decision service (PRD 5.3
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "payments-features",
+    "payments-rules",
     "confluent-kafka[avro,schemaregistry]==2.16.0",
     "redis==8.1.0",
 ]
 
 [project.scripts]
 feature-sink = "decision_service.feature_sink:main"
+decision-service = "decision_service.service:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
@@ -21,3 +23,4 @@ module-name = "decision_service"
 
 [tool.uv.sources]
 payments-features = { workspace = true }
+payments-rules = { workspace = true }

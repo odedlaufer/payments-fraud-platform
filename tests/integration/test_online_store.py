@@ -102,3 +102,21 @@ def test_a_recomputed_copy_repairs_an_earlier_wrong_one(store: OnlineStore) -> N
     store.upsert_card(record(7, 5000, count_1m=4))  # replayed with history
     card = store.get_card(42)
     assert card is not None and card.values["txn_count_1m"] == 4
+
+
+def test_transaction_snapshots_expire_and_are_read_in_one_round_trip(store: OnlineStore) -> None:
+    store.put_transaction(record(7, 5000, count_1m=2, ratio=0.25), written_at_ms=9)
+    store.put_transaction(record(8, 5001, count_1m=3))
+    found = store.get_transactions([7, 8, 999])
+    assert sorted(found) == [7, 8]
+    assert found[7].transaction_id == 7 and found[7].values["txn_count_1m"] == 2
+    assert found[7].values["amount_vs_avg_30d"] == 0.25 and found[7].card_id == 42
+    ttl = store.client.ttl("txn:7")
+    assert 0 < int(str(ttl)) <= 120
+
+
+def test_decided_markers(store: OnlineStore) -> None:
+    assert store.decided([1, 2]) == set()
+    store.mark_decided([1, 2])
+    store.mark_decided([2])  # idempotent
+    assert store.decided([1, 2, 3]) == {1, 2}

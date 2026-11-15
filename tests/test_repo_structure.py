@@ -65,6 +65,8 @@ REQUIRED_FILES = [
     "flink/sql/features/card_features.sql",
     "scripts/features_check.py",
     "scripts/online_check.py",
+    "scripts/decisions_check.py",
+    "rules/rules_v1.yml",
     "decision_service/Dockerfile",
     ".dockerignore",
     "chaos/ch1-bronze.sh",

@@ -5,15 +5,16 @@ description = "Payments CDC lakehouse and real-time fraud feature platform"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-dependencies = ["payments-simulator", "payments-features", "payments-decision"]
+dependencies = ["payments-simulator", "payments-features", "payments-decision", "payments-rules"]
 
 [tool.uv.workspace]
-members = ["simulator", "features", "decision_service"]
+members = ["simulator", "features", "decision_service", "rules"]
 
 [tool.uv.sources]
 payments-simulator = { workspace = true }
 payments-features = { workspace = true }
 payments-decision = { workspace = true }
+payments-rules = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -49,7 +50,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "RUF"]
 # trino/ in the repo is Trino server config, not the Python client.
 known-third-party = ["trino"]
 known-first-party = [
-    "simulator", "features", "decision_service", "cdc_reconcile", "gen_bronze", "features_check"
+    "simulator", "features", "decision_service", "rules", "cdc_reconcile", "gen_bronze", "features_check"
 ]
 
 [tool.mypy]
