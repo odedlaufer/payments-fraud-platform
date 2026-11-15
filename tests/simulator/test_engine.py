@@ -97,11 +97,11 @@ def test_channels_and_locations(day: tuple[Engine, MemoryStore]) -> None:
     _, store = day
     channels = Counter(r["channel"] for r in store.transactions.values())
     assert channels["online"] > 0 and channels["card_present"] > 0
-    for row in store.transactions.values():
+    for txn_id, row in store.transactions.items():
         if row["channel"] == "card_present":
             assert row["lat"] is not None and row["lon"] is not None
             assert row["session_id"] is None
-        else:
+        elif txn_id not in store.truth:  # card testing uses stolen numbers: no session
             assert row["session_id"] in store.sessions
 
 
@@ -182,8 +182,9 @@ def test_rejects_naive_start() -> None:
 def test_device_risk_score_on_online_transactions_only(day: tuple[Engine, MemoryStore]) -> None:
     """FR-SIM7 column: online transactions carry the session device's risk, card-present none."""
     _, store = day
-    online = [r for r in store.transactions.values() if r["channel"] == "online"]
-    present = [r for r in store.transactions.values() if r["channel"] == "card_present"]
+    legit = {i: r for i, r in store.transactions.items() if i not in store.truth}
+    online = [r for r in legit.values() if r["channel"] == "online"]
+    present = [r for r in legit.values() if r["channel"] == "card_present"]
     assert all(r["device_risk_score"] is None for r in present)
     scores = [Decimal(str(r["device_risk_score"])) for r in online]
     assert all(0 <= s <= 1 for s in scores)

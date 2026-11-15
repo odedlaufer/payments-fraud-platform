@@ -1,9 +1,9 @@
 version: 1
 description: >-
-  Baseline rules on card features. Thresholds were calibrated on 4 simulated days of
-  legitimate traffic (48,000 transactions, 2,672 cards): together they review or decline
-  about 0.07% of it. Impossible travel waits for the simulator's travel model (Phase 3.5),
-  because today legitimate card-present traffic jumps between countries.
+  Baseline rules on card features. Calibrated with scripts/simulate_detection.py on 4
+  simulated days (48,000 transactions, 2,672 cards, injected fraud): about 0.1% of
+  legitimate traffic is reviewed or declined. Account takeover needs customer features
+  (rules v2).
 
 rules:
   - id: card_testing
@@ -11,6 +11,12 @@ rules:
     condition: txn_count_1h >= 5 and distinct_merchants_1h >= 4
     action: decline
     severity: 90
+
+  - id: impossible_travel
+    description: Two in-person purchases further apart than an airliner could fly in between.
+    condition: km_from_last_txn >= 500 and minutes_since_last_txn * 15 < km_from_last_txn
+    action: decline
+    severity: 85
 
   - id: velocity_burst
     description: Three or more transactions on the card within a minute.

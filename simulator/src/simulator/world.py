@@ -15,6 +15,12 @@ class CustomerState:
     last_session_id: int | None = None
     last_session_at: datetime | None = None
     last_session_risk: Decimal | None = None
+    home_city: int = -1  # index into geo.CITIES, set by the engine
+    # A trip: in transit until arrive, at trip_city until leave, in transit until home.
+    trip_city: int | None = None
+    trip_arrive: datetime | None = None
+    trip_leave: datetime | None = None
+    trip_home: datetime | None = None
 
 
 @dataclass

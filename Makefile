@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -157,3 +157,12 @@ online-check: ## Every card in Redis == the newest features.card record for that
 
 decisions-check: ## Every new transaction decided once, exact snapshots, latency p95 (Phase 3 gate)
 	uv run python scripts/decisions_check.py
+
+detection-report: ## Live: what the decision service did with injected fraud (vs sim.sim_truth)
+	uv run python scripts/detection_report.py
+
+detection-sim: ## Offline: estimate a rules file's detection on simulated days (no stack needed)
+	uv run python scripts/simulate_detection.py
+
+phase3-gate: ## Phase 3 gate: p95 < 5 s at 20 tx/s, card testing and impossible travel caught
+	scripts/phase3-gate.sh

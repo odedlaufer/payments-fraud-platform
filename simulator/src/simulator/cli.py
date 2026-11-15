@@ -53,7 +53,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             store,
             seed=args.seed,
             tx_per_sim_second=args.tps / speed,
-            rates=Rates().scaled(args.change_rate),
+            rates=Rates().scaled(args.change_rate).with_fraud(args.fraud_rate),
             start=start,
         )
         stop = StopAt(
@@ -94,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     runp.add_argument("--seed", type=int, default=42)
     runp.add_argument(
         "--change-rate", type=float, default=1.0, help="multiplier for FR-SIM5 changes"
+    )
+    runp.add_argument(
+        "--fraud-rate",
+        type=float,
+        default=1.0,
+        help="multiplier for injected fraud attacks (FR-SIM3); 0 turns fraud off",
     )
     runp.add_argument("--fast", action="store_true", help="no pacing; deterministic for a seed")
     runp.add_argument("--max-transactions", type=int, default=None)
