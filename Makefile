@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -139,6 +139,15 @@ quick-check: ## Fast end-to-end check after a change: bronze exact, dbt run, DQ-
 	cd dbt && uv run dbt run --profiles-dir . | grep -E "ERROR|Done\\."
 	uv run python scripts/silver_reconcile.py --no-record | tail -1
 
-features-doc: ## Validate features/definitions.yml and regenerate docs/feature-catalogue.md
+features-doc: ## Validate definitions; regenerate the catalogue and the card-feature Flink job
 	uv run features validate
 	uv run features catalogue
+	uv run features flink
+
+test-flink: ## Feature equality: the generated job in real Flink == the reference (needs Java 17+)
+	uv run --isolated --no-project --python 3.12 --with apache-flink==2.1.3 --with pytest==8.3.4 \\
+	  --with pyyaml==6.0.2 --with-editable ./features --with-editable ./simulator \\
+	  pytest -m flink tests/features/test_flink_equality.py -p no:cacheprovider -W ignore
+
+features-check: ## Live: every features.card record equals the reference recomputed from Postgres
+	uv run python scripts/features_check.py

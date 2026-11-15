@@ -398,7 +398,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 896m
+          memory: 1024m
 
   flink-taskmanager:
     <<: *restart
@@ -412,7 +412,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1408m
+          memory: 1664m
 
   # One-shot: creates the bronze Iceberg tables (generated, idempotent).
   bronze-ddl:

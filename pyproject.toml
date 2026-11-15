@@ -56,5 +56,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m 'not integration'"
-markers = ["integration: needs the running stack (make up)"]
+addopts = "-ra --strict-markers -m 'not integration and not flink'"
+markers = [
+    "integration: needs the running stack (make up)",
+    "flink: runs real Flink (make test-flink: isolated env with PyFlink and Java 17+)",
+]

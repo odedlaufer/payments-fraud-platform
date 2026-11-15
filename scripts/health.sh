@@ -109,6 +109,7 @@ fi
 if has_profile stream; then
   wait_for "flink" flink_ready
   wait_for "job:bronze-cdc" flink_job_running bronze-cdc
+  wait_for "job:features-card" flink_job_running features-card
 fi
 
 if (( FAILED )); then
