@@ -62,6 +62,8 @@ REQUIRED_FILES = [
     "scripts/schema-evolve.sh",
     "features/definitions.yml",
     "docs/feature-catalogue.md",
+    "flink/sql/features/card_features.sql",
+    "scripts/features_check.py",
     "chaos/ch1-bronze.sh",
     "dbt/dbt_project.yml",
     "dbt/profiles.yml",

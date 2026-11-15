@@ -5,9 +5,14 @@ import sys
 from pathlib import Path
 
 from features.catalogue import render
+from features.flink import CardJob
 from features.model import DEFAULT_PATH, DefinitionError, load
 
-CATALOGUE = DEFAULT_PATH.parents[1] / "docs/feature-catalogue.md"
+ROOT = DEFAULT_PATH.parents[1]
+CATALOGUE = ROOT / "docs/feature-catalogue.md"
+CARD_JOB = ROOT / "flink/sql/features/card_features.sql"
+KAFKA = "redpanda:9092"
+REGISTRY = "http://redpanda:8081"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("validate", help="load and validate definitions.yml")
     cat = sub.add_parser("catalogue", help="write docs/feature-catalogue.md")
     cat.add_argument("--check", action="store_true", help="fail if the catalogue is stale")
+    flink = sub.add_parser("flink", help="write flink/sql/features/card_features.sql")
+    flink.add_argument("--check", action="store_true", help="fail if the job is stale")
     args = parser.parse_args(argv)
     try:
         defs = load()
@@ -25,16 +32,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         print(f"{len(defs.features)} features valid (definitions version {defs.version})")
         return 0
-    text = render(defs)
-    path = Path(CATALOGUE)
+    if args.command == "catalogue":
+        text, path = render(defs), Path(CATALOGUE)
+    else:
+        text, path = CardJob(defs).job(KAFKA, REGISTRY), Path(CARD_JOB)
+    name = path.relative_to(ROOT)
     if args.check:
         if not path.exists() or path.read_text() != text:
-            print("docs/feature-catalogue.md is stale: run `uv run features catalogue`")
+            print(f"{name} is stale: run `uv run features {args.command}`")
             return 1
-        print("feature catalogue is up to date")
+        print(f"{name} is up to date")
         return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
-    print(f"wrote {path.relative_to(path.parents[1])}")
+    print(f"wrote {name}")
     return 0
 
 

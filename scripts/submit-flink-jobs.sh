@@ -12,7 +12,10 @@
 set -euo pipefail
 cd /opt/flink
 
-JOBS=("bronze-cdc:/opt/flink/sql/bronze/bronze_cdc.sql")
+JOBS=(
+  "bronze-cdc:/opt/flink/sql/bronze/bronze_cdc.sql"
+  "features-card:/opt/flink/sql/features/card_features.sql"
+)
 RESTORE_PATH="${RESTORE_PATH:-}"
 ONLY_JOB="${ONLY_JOB:-}"
 HEARTBEAT=/tmp/supervisor.alive
