@@ -8,7 +8,7 @@ from typing import Any, cast
 import fastavro
 import pytest
 
-from decision_service.context import CARD_FEATURES, RULE_NAMES, SNAPSHOT_FEATURES
+from decision_service.context import FLINK_FEATURES, RULE_NAMES, SNAPSHOT_FEATURES
 from decision_service.decision import STALE, Transaction, avro_schema, decide
 from decision_service.online_store import CardFeatures
 from rules.engine import RuleSet
@@ -35,7 +35,7 @@ TXN = parse(event())
 
 
 def snapshot(txn_id: int = 7, **values: object) -> CardFeatures:
-    base: dict[str, object] = {name: None for name in CARD_FEATURES}
+    base: dict[str, object] = {name: None for name in FLINK_FEATURES}
     base.update(txn_count_1m=1, txn_count_1h=1, txn_count_24h=1, distinct_merchants_1h=1,
                 txn_amount_sum_1h=Decimal("4.50"), txn_amount_sum_24h=Decimal("4.50"))  # fmt: skip
     base.update(values)

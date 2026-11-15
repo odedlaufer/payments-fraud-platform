@@ -100,6 +100,7 @@ def main() -> int:
             commit_ms = record.get("commit_ms")
             if commit_ms is not None and now_ms - int(commit_ms) < FRESH_MS:
                 store.put_transaction(record, now_ms)  # exact snapshot for its decision
+            store.upsert_merchant(record)
             if store.upsert_card(record):
                 applied += 1
             else:

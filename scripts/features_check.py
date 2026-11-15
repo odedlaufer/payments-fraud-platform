@@ -1,5 +1,6 @@
 """Live feature equality (PRD 8.4 on real data): every record on features.card must equal
-the reference implementation recomputed from Postgres, feature by feature.
+the reference implementation recomputed from Postgres, feature by feature (card features,
+and merchant features from the status-change times).
 
     uv run python scripts/features_check.py
 """
@@ -16,7 +17,7 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 
 from cdc_reconcile import kafka_clients, load_env
 from features.model import load
-from features.reference import Txn, card_features
+from features.reference import MerchantTxn, StatusChange, Txn, card_features, merchant_features
 
 TOPIC = "features.card"
 
@@ -49,6 +50,13 @@ def read_features(env: dict[str, str]) -> dict[int, dict[str, Any]]:
     return records
 
 
+# Epoch milliseconds of a timestamptz column, truncated (%% escapes % for psycopg).
+MS_SQL = (
+    "(extract(epoch from date_trunc('second', {c}))::bigint * 1000 "
+    "+ floor(extract(microseconds from {c})::bigint %% 1000000 / 1000))::bigint"
+)
+
+
 def card_history(env: dict[str, str], cards: set[int]) -> list[Txn]:
     dsn = (
         f"host=localhost port={env.get('POSTGRES_PORT', '5432')} dbname={env['POSTGRES_DB']} "
@@ -57,8 +65,7 @@ def card_history(env: dict[str, str], cards: set[int]) -> list[Txn]:
     with psycopg.connect(dsn) as conn:
         rows = conn.execute(
             "select transaction_id, card_id, merchant_id, amount, channel, lat, lon, "
-            "(extract(epoch from date_trunc('second', event_ts))::bigint * 1000 "
-            " + floor(extract(microseconds from event_ts)::bigint %% 1000000 / 1000))::bigint "
+            f"{MS_SQL.format(c='event_ts')} "
             "from transactions where card_id = any(%s) order by transaction_id",
             (sorted(cards),),
         ).fetchall()
@@ -66,6 +73,29 @@ def card_history(env: dict[str, str], cards: set[int]) -> list[Txn]:
         Txn(int(r[0]), int(r[1]), int(r[2]), Decimal(r[3]), str(r[4]), r[5], r[6], int(r[7]))
         for r in rows
     ]
+
+
+def merchant_history(
+    env: dict[str, str], merchants: set[int]
+) -> tuple[list[MerchantTxn], list[StatusChange]]:
+    """Creations, and status changes with a known time (status_event_ts), per merchant."""
+    dsn = (
+        f"host=localhost port={env.get('POSTGRES_PORT', '5432')} dbname={env['POSTGRES_DB']} "
+        f"user={env['POSTGRES_USER']} password={env.get('POSTGRES_PASSWORD', '')}"
+    )
+    with psycopg.connect(dsn) as conn:
+        rows = conn.execute(
+            f"select transaction_id, merchant_id, status, {MS_SQL.format(c='event_ts')}, "
+            f"case when status_event_ts is null then null "
+            f"else {MS_SQL.format(c='status_event_ts')} end "
+            "from transactions where merchant_id = any(%s)",
+            (sorted(merchants),),
+        ).fetchall()
+    txns = [MerchantTxn(int(r[0]), int(r[1]), int(r[3])) for r in rows]
+    changes = [
+        StatusChange(int(r[0]), int(r[1]), str(r[2]), int(r[4])) for r in rows if r[4] is not None
+    ]
+    return txns, changes
 
 
 def equal(got: object, want: object) -> bool:
@@ -84,7 +114,13 @@ def main() -> int:
     records = read_features(env)
     history = card_history(env, {int(r["card_id"]) for r in records.values()})
     expected = card_features(defs, history)
-    names = [f.name for f in defs.for_entity("card")]
+    merchants = {
+        int(r["merchant_id"]) for r in records.values() if r.get("merchant_id") is not None
+    }
+    for txn_id, values in merchant_features(defs, *merchant_history(env, merchants)).items():
+        if txn_id in expected:
+            expected[txn_id].update(values)
+    names = [f.name for f in defs.features if f.entity in ("card", "merchant")]
     mismatches: Counter[str] = Counter()
     examples: dict[str, list[str]] = defaultdict(list)
     for txn_id, record in records.items():
@@ -93,13 +129,13 @@ def main() -> int:
             mismatches["<not in postgres>"] += 1
             continue
         for name in names:
-            if not equal(record[name], want[name]):
+            if not equal(record.get(name), want.get(name)):
                 mismatches[name] += 1
                 if len(examples[name]) < 3:
                     examples[name].append(
-                        f"txn {txn_id}: flink={record[name]!r} reference={want[name]!r}"
+                        f"txn {txn_id}: flink={record.get(name)!r} reference={want.get(name)!r}"
                     )
-    print(f"{len(records)} transactions x {len(names)} card features compared with the reference")
+    print(f"{len(records)} transactions x {len(names)} features compared with the reference")
     for name in names:
         print(f"  {name:<24} {'OK' if not mismatches[name] else f'{mismatches[name]} mismatches'}")
         for line in examples[name]:

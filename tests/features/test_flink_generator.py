@@ -17,6 +17,8 @@ def test_one_view_per_window_size_plus_previous() -> None:
         "card_w_24h",
         "card_w_30d",
         "card_prev",
+        "merchant_refund_rate_7d_events",
+        "merchant_refund_rate_7d_w",
     ]
 
 
@@ -47,9 +49,14 @@ def test_committed_job_is_current() -> None:
 
 
 def test_event_time_parsing_sql_is_exact() -> None:
-    """One backslash: the regex Flink receives is \\.([0-9]+), a literal dot then digits."""
+    """One backslash: the regex Flink receives is \\.([0-9]+), a literal dot then digits.
+    Event time is the change time: authorization for a creation, status change otherwise."""
     ddl = JOB.source_ddl({})
-    assert r"REGEXP_EXTRACT(COALESCE(`after`.event_ts, `before`.event_ts), '\.([0-9]+)', 1)" in ddl
+    change_time = (
+        "CASE WHEN `op` = 'c' THEN `after`.event_ts "
+        "ELSE COALESCE(`after`.status_event_ts, `after`.event_ts, `before`.event_ts) END"
+    )
+    assert f"REGEXP_EXTRACT({change_time}, '\\.([0-9]+)', 1)" in ddl
     assert r"'\\.([0-9]+)'" not in ddl
     assert "'yyyy-MM-dd''T''HH:mm:ss'" in ddl
     assert "WATERMARK FOR event_time AS event_time - INTERVAL '30' SECOND" in ddl

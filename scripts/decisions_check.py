@@ -127,8 +127,9 @@ def main() -> int:
     created = {int(r[0]) for r in rows}
     missing = sorted(created - set(ids))
 
-    names = [f.name for f in load().for_entity("card")]
-    dtypes = {f.name: f.dtype for f in load().for_entity("card")}
+    flink = [f for f in load().features if f.entity in ("card", "merchant")]
+    names = [f.name for f in flink]
+    dtypes = {f.name: f.dtype for f in flink}
     features = read_features(env)
     snapshot_mismatches = 0
     for d in decisions:
@@ -139,7 +140,7 @@ def main() -> int:
             got = d["features"][name]
             if got is not None and dtypes[name].startswith("decimal"):
                 got = Decimal(got)
-            if record is None or not equal(got, record[name]):
+            if record is None or not equal(got, record.get(name)):
                 snapshot_mismatches += 1
                 break
 

@@ -190,3 +190,14 @@ def test_device_risk_score_on_online_transactions_only(day: tuple[Engine, Memory
     assert all(0 <= s <= 1 for s in scores)
     high = sum(1 for s in scores if s >= Decimal("0.6"))
     assert 0 < high < len(scores) * 0.2, "new devices are rare and score high"
+
+
+def test_status_changes_record_when_they_happened(day: tuple[Engine, MemoryStore]) -> None:
+    _, store = day
+    for row in store.transactions.values():
+        history = [h for h in row["history"] if isinstance(h, tuple)]  # type: ignore[attr-defined]
+        if history:
+            assert row["status_event_ts"] == history[-1][1]
+            assert row["status_event_ts"] >= row["event_ts"]  # type: ignore[operator]
+        else:
+            assert row["status_event_ts"] == row["event_ts"]
