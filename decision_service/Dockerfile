@@ -11,6 +11,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY simulator/pyproject.toml simulator/pyproject.toml
 COPY features features
+COPY rules rules
 COPY decision_service decision_service
 RUN uv sync --frozen --no-default-groups --package payments-decision \
  && useradd --system --no-create-home app

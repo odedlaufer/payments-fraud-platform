@@ -7,6 +7,7 @@ members = [
     "payments-decision",
     "payments-features",
     "payments-fraud-platform",
+    "payments-rules",
     "payments-simulator",
 ]
 
@@ -930,6 +931,7 @@ source = { editable = "decision_service" }
 dependencies = [
     { name = "confluent-kafka", extra = ["avro", "schemaregistry"] },
     { name = "payments-features" },
+    { name = "payments-rules" },
     { name = "redis" },
 ]
 
@@ -937,6 +939,7 @@ dependencies = [
 requires-dist = [
     { name = "confluent-kafka", extras = ["avro", "schemaregistry"], specifier = "==2.16.0" },
     { name = "payments-features", editable = "features" },
+    { name = "payments-rules", editable = "rules" },
     { name = "redis", specifier = "==8.1.0" },
 ]
 
@@ -959,6 +962,7 @@ default-groups = ["dbt", "dev"]
 dependencies = [
     { name = "payments-decision" },
     { name = "payments-features" },
+    { name = "payments-rules" },
     { name = "payments-simulator" },
 ]
 
@@ -985,6 +989,7 @@ dev = [
 requires-dist = [
     { name = "payments-decision", editable = "decision_service" },
     { name = "payments-features", editable = "features" },
+    { name = "payments-rules", editable = "rules" },
     { name = "payments-simulator", editable = "simulator" },
 ]
 
@@ -1006,6 +1011,17 @@ dev = [
     { name = "trino", specifier = "==0.340.0" },
     { name = "types-pyyaml", specifier = "==6.0.12.20241230" },
 ]
+
+[[package]]
+name = "payments-rules"
+version = "0.1.0"
+source = { editable = "rules" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = "==6.0.2" }]
 
 [[package]]
 name = "payments-simulator"

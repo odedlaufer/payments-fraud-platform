@@ -38,6 +38,7 @@ def test_every_card_feature_reaches_the_sink() -> None:
         assert f" AS {f.name}" in JOB.select()
     assert "'topic' = 'features.card'" in job and "'topic' = 'dlq.late_events'" in job
     assert "'sink.delivery-guarantee' = 'at-least-once'" in job
+    assert "commit_ms BIGINT" in JOB.sink_columns() and "`source`.ts_ms AS commit_ms" in job
 
 
 def test_committed_job_is_current() -> None:

@@ -76,7 +76,8 @@ def debezium_line(row: tuple[Any, ...]) -> str:
         "lon": loc[1] if loc else None,
         "event_ts": iso,
     }
-    return json.dumps({"op": "c", "before": None, "after": after})
+    commit_ms = event_ms(iso) + 250  # Debezium source.ts_ms: commit time
+    return json.dumps({"op": "c", "before": None, "after": after, "source": {"ts_ms": commit_ms}})
 
 
 @pytest.fixture(scope="module")
@@ -124,6 +125,11 @@ def test_event_time_is_truncated_to_milliseconds(flink_rows: dict[int, dict[str,
 
 def test_one_row_per_created_transaction(flink_rows: dict[int, dict[str, Any]]) -> None:
     assert sorted(flink_rows) == [r[0] for r in SCENARIO]
+
+
+def test_commit_time_is_carried_through(flink_rows: dict[int, dict[str, Any]]) -> None:
+    for row in SCENARIO:
+        assert flink_rows[row[0]]["commit_ms"] == event_ms(row[7]) + 250
 
 
 @pytest.mark.parametrize("feature", [f.name for f in load().for_entity("card")])

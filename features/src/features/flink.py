@@ -96,6 +96,7 @@ class CardJob:
     `op` STRING,
     `before` ROW<{row}>,
     `after` ROW<{row}>,
+    `source` ROW<`ts_ms` BIGINT>,
     event_ms AS {EVENT_MS},
     event_time AS TO_TIMESTAMP_LTZ({EVENT_MS}, 3),
     WATERMARK FOR event_time AS event_time - {interval(str(self.defs.semantics["watermark"]))}
@@ -110,7 +111,8 @@ class CardJob:
         )
         views = [
             # Transactions at creation (FR-F1), minus events already behind the watermark.
-            f"CREATE TEMPORARY VIEW card_txn AS SELECT {fields}, event_ms, event_time "
+            f"CREATE TEMPORARY VIEW card_txn AS SELECT {fields}, "
+            "`source`.ts_ms AS commit_ms, event_ms, event_time "
             f"FROM pg_transactions WHERE op = 'c' AND ({on_time})",
             "CREATE TEMPORARY VIEW card_late AS SELECT `after`.transaction_id AS transaction_id, "
             "`after`.card_id AS card_id, event_ms, "
@@ -193,13 +195,16 @@ class CardJob:
                 " LEFT JOIN card_prev p ON p.transaction_id = t.transaction_id "
                 "AND p.event_time BETWEEN t.event_time AND t.event_time"
             )
-        return f"SELECT t.transaction_id, t.card_id, t.event_ms, {cols} FROM card_txn t{joins}"
+        return (
+            f"SELECT t.transaction_id, t.card_id, t.event_ms, t.commit_ms, {cols} "
+            f"FROM card_txn t{joins}"
+        )
 
     def sink_columns(self) -> str:
         cols = ", ".join(f"{f.name} {DTYPES[f.dtype]}" for f in self.features)
         return (
             "card_key STRING, transaction_id BIGINT, card_id BIGINT, event_ms BIGINT, "
-            f"{cols}, definitions_version INT, computed_at STRING"
+            f"commit_ms BIGINT, {cols}, definitions_version INT, computed_at STRING"
         )
 
     def job(self, bootstrap: str, registry: str) -> str:
@@ -256,7 +261,7 @@ class CardJob:
         body = (
             "EXECUTE STATEMENT SET\nBEGIN\n"
             f"INSERT INTO features_card SELECT CAST(card_id AS STRING), transaction_id, card_id, "
-            f"event_ms, {names}, {self.defs.version}, {stamp} FROM ({self.select()});\n"
+            f"event_ms, commit_ms, {names}, {self.defs.version}, {stamp} FROM ({self.select()});\n"
             f"INSERT INTO late_events SELECT '{TOPIC}', transaction_id, card_id, event_ms, "
             f"watermark_at, {stamp} FROM card_late;\n"
             "END;\n"

@@ -29,6 +29,9 @@ from features.model import load
 
 TOPIC = "features.card"
 HEARTBEAT = Path("/tmp/feature-sink.alive")
+# Write a per-transaction snapshot only for transactions committed this recently: the
+# decision service needs it within seconds, and replays of history must not flood Redis.
+FRESH_MS = 60_000
 
 
 def redis_run_id(client: redis.Redis) -> str:
@@ -74,7 +77,9 @@ def main() -> int:
             print("feature-sink: Redis restarted (empty); exiting to rebuild", flush=True)
             consumer.close()
             return 1
-        for msg in consumer.consume(500, timeout=1.0):
+        # Return quickly: consume() waits for the full timeout unless 500 messages arrive,
+        # and every millisecond here is decision latency.
+        for msg in consumer.consume(500, timeout=0.05):
             error = msg.error()
             if error is not None:
                 if error.code() != KafkaError.UNKNOWN_TOPIC_OR_PART:
@@ -86,6 +91,10 @@ def main() -> int:
             record = cast(
                 dict[str, Any], deserialize(value, SerializationContext(TOPIC, MessageField.VALUE))
             )
+            now_ms = int(time.time() * 1000)
+            commit_ms = record.get("commit_ms")
+            if commit_ms is not None and now_ms - int(commit_ms) < FRESH_MS:
+                store.put_transaction(record, now_ms)  # exact snapshot for its decision
             if store.upsert_card(record):
                 applied += 1
             else:

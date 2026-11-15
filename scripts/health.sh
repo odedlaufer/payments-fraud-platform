@@ -117,6 +117,7 @@ if has_profile stream; then
   wait_for "job:features-card" flink_job_running features-card
   wait_for "redis" docker compose exec -T redis redis-cli ping
   wait_for "feature-sink" service_healthy feature-sink
+  wait_for "decision-service" service_healthy decision-service
 fi
 
 if (( FAILED )); then

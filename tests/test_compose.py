@@ -34,6 +34,7 @@ EXPECTED_SERVICES = {
     "flink-jobs",
     "redis",
     "feature-sink",
+    "decision-service",
 }
 
 

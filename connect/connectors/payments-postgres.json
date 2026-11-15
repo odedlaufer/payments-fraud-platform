@@ -19,6 +19,7 @@
   "decimal.handling.mode": "precise",
 
   "heartbeat.interval.ms": "10000",
+  "poll.interval.ms": "100",
   "heartbeat.action.query": "UPDATE public.cdc_heartbeat SET beat_at = now() WHERE id = 1",
 
   "key.converter": "io.confluent.connect.avro.AvroConverter",
