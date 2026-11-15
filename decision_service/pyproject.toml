@@ -1,0 +1,23 @@
+[project]
+name = "payments-decision"
+version = "0.1.0"
+description = "Online feature store sink and real-time decision service (PRD 5.3, 5.4)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "payments-features",
+    "confluent-kafka[avro,schemaregistry]==2.16.0",
+    "redis==8.1.0",
+]
+
+[project.scripts]
+feature-sink = "decision_service.feature_sink:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "decision_service"
+
+[tool.uv.sources]
+payments-features = { workspace = true }

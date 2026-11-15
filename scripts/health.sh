@@ -72,6 +72,11 @@ flink_job_running() {
     | grep -qE "\"name\":\"$1\"[^}]*\"state\":\"RUNNING\""
 }
 
+# A compose service reports healthy (its own healthcheck).
+service_healthy() {
+  [[ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q "$1")" 2>/dev/null)" == "healthy" ]]
+}
+
 # Trino answers and has finished starting.
 trino_ready() {
   curl -fsS --max-time 3 "http://localhost:${TRINO_PORT}/v1/info" | grep -q '"starting":false'
@@ -110,6 +115,8 @@ if has_profile stream; then
   wait_for "flink" flink_ready
   wait_for "job:bronze-cdc" flink_job_running bronze-cdc
   wait_for "job:features-card" flink_job_running features-card
+  wait_for "redis" docker compose exec -T redis redis-cli ping
+  wait_for "feature-sink" service_healthy feature-sink
 fi
 
 if (( FAILED )); then

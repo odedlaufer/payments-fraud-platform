@@ -4,6 +4,7 @@ requires-python = "==3.12.*"
 
 [manifest]
 members = [
+    "payments-decision",
     "payments-features",
     "payments-fraud-platform",
     "payments-simulator",
@@ -923,6 +924,23 @@ wheels = [
 ]
 
 [[package]]
+name = "payments-decision"
+version = "0.1.0"
+source = { editable = "decision_service" }
+dependencies = [
+    { name = "confluent-kafka", extra = ["avro", "schemaregistry"] },
+    { name = "payments-features" },
+    { name = "redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "confluent-kafka", extras = ["avro", "schemaregistry"], specifier = "==2.16.0" },
+    { name = "payments-features", editable = "features" },
+    { name = "redis", specifier = "==8.1.0" },
+]
+
+[[package]]
 name = "payments-features"
 version = "0.1.0"
 source = { editable = "features" }
@@ -939,6 +957,7 @@ version = "0.1.0"
 source = { virtual = "." }
 default-groups = ["dbt", "dev"]
 dependencies = [
+    { name = "payments-decision" },
     { name = "payments-features" },
     { name = "payments-simulator" },
 ]
@@ -964,6 +983,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "payments-decision", editable = "decision_service" },
     { name = "payments-features", editable = "features" },
     { name = "payments-simulator", editable = "simulator" },
 ]
@@ -1279,6 +1299,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/07/8a/995b4746c5bc1f561e64de1fa546927183fec7a369fe988716ef394a6d0a/rapidfuzz-3.14.6-cp312-cp312-win32.whl", hash = "sha256:9e974251a9833791bc557b46f975676a56c2d58946f795cd2964b095496dfdcc", size = 1887051, upload-time = "2026-08-30T21:42:48.265Z" },
     { url = "https://files.pythonhosted.org/packages/84/c4/12f01df5778227c8655fcd9b429fc001d43270f5d8d154edc9066bab1de3/rapidfuzz-3.14.6-cp312-cp312-win_amd64.whl", hash = "sha256:cfca36e4612208875e08611a779164b6cb8900ab8bbd3d82d4cfdfae9efbfac9", size = 1731992, upload-time = "2026-08-30T21:42:50.211Z" },
     { url = "https://files.pythonhosted.org/packages/19/8d/92217f0bc81ec458b4134ad53714b1be0cd3be21494227d73510b06467d6/rapidfuzz-3.14.6-cp312-cp312-win_arm64.whl", hash = "sha256:96bbd5a1c67d135334d02fae74f1d933fdda204ea03d544a59dab6b1cbfbf565", size = 1186693, upload-time = "2026-08-30T21:42:52.63Z" },
+]
+
+[[package]]
+name = "redis"
+version = "8.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/99/604f0b666d4c616d891cf77ebb9db6bb21601344c051aebf1b72b9ff915f/redis-8.1.0.tar.gz", hash = "sha256:6e1a19beef9225c83efd689c7e6b7da2d5215b1f42cd13b7fc3714d0a09c7b25", size = 5254356, upload-time = "2026-07-30T08:51:00.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/9d/c5731f6e3608663d4d3656fd8d3aecee8b509c3082818f5a13eae925baea/redis-8.1.0-py3-none-any.whl", hash = "sha256:a4fe1aac3d3b3cc791d4b3d5931c5a956045dc951ee74d1c913ee3ac4d2ee9fb", size = 560618, upload-time = "2026-07-30T08:50:58.497Z" },
 ]
 
 [[package]]
