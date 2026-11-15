@@ -64,21 +64,28 @@ class PostgresStore:
     def __init__(self, conn: Conn) -> None:
         self.conn = conn
         self.ops: Counter[tuple[str, str]] = Counter()
-        self._risk_column: bool | None = None
-        self._risk_checked_at = 0.0
+        self._columns: dict[str, bool] = {}
+        self._columns_checked_at: dict[str, float] = {}
+
+    def has_column(self, column: str) -> bool:
+        """True once a migration has added public.transactions.<column>. Re-checked every
+        COLUMN_CHECK_S until present, so a migration applied mid-run is picked up."""
+        now = time.monotonic()
+        if not self._columns.get(column) and (
+            now - self._columns_checked_at.get(column, -self.COLUMN_CHECK_S) >= self.COLUMN_CHECK_S
+        ):
+            row = self.conn.execute(
+                "select exists (select 1 from information_schema.columns where "
+                "table_schema = 'public' and table_name = 'transactions' and column_name = %s)",
+                (column,),
+            ).fetchone()
+            self._columns[column] = bool(row and row[0])
+            self._columns_checked_at[column] = now
+        return self._columns.get(column, False)
 
     def has_device_risk_column(self) -> bool:
         """True once the FR-SIM7 migration has added transactions.device_risk_score."""
-        now = time.monotonic()
-        if self._risk_column is not True and now - self._risk_checked_at >= self.COLUMN_CHECK_S:
-            row = self.conn.execute(
-                "select exists (select 1 from information_schema.columns where "
-                "table_schema = 'public' and table_name = 'transactions' "
-                "and column_name = 'device_risk_score')"
-            ).fetchone()
-            self._risk_column = bool(row and row[0])
-            self._risk_checked_at = now
-        return bool(self._risk_column)
+        return self.has_column("device_risk_score")
 
     def load_world(self) -> World:
         c = self.conn
@@ -171,6 +178,9 @@ class PostgresStore:
         if self.has_device_risk_column():
             columns += ", device_risk_score"
             values += (txn.device_risk_score,)
+        if self.has_column("status_event_ts"):
+            columns += ", status_event_ts"
+            values += (txn.event_ts,)  # pending since authorization
         placeholders = ", ".join(["%s"] * len(values))
         return self._returning_id(
             f"insert into transactions ({columns}) values ({placeholders}) "
@@ -181,11 +191,18 @@ class PostgresStore:
     def update_transaction_status(self, transaction_id: int, status: str, at: datetime) -> None:
         self.ops["transactions", "update"] += 1
         # event_ts is the authorization time and never changes: feature windows key on it.
-        # When the status changed is visible in updated_at and the CDC commit timestamp.
-        self.conn.execute(
-            "update transactions set status = %s where transaction_id = %s",
-            (status, transaction_id),
-        )
+        # status_event_ts (once migrated) records when the status changed, in simulated time.
+        if self.has_column("status_event_ts"):
+            self.conn.execute(
+                "update transactions set status = %s, status_event_ts = %s "
+                "where transaction_id = %s",
+                (status, at, transaction_id),
+            )
+        else:
+            self.conn.execute(
+                "update transactions set status = %s where transaction_id = %s",
+                (status, transaction_id),
+            )
 
     def update_customer(self, customer_id: int, column: str, value: object, at: datetime) -> None:
         assert column in CUSTOMER_COLUMNS
@@ -267,7 +284,12 @@ class MemoryStore:
     def insert_transaction(self, txn: NewTransaction) -> int:
         self.ops["transactions", "insert"] += 1
         tid = self._id("transactions")
-        self.transactions[tid] = {**txn.__dict__, "status": "pending", "history": ["pending"]}
+        self.transactions[tid] = {
+            **txn.__dict__,
+            "status": "pending",
+            "status_event_ts": txn.event_ts,
+            "history": ["pending"],
+        }
         self.log.append(("transactions", "insert", tid, txn.event_ts))
         return tid
 
@@ -275,6 +297,7 @@ class MemoryStore:
         self.ops["transactions", "update"] += 1
         row = self.transactions[transaction_id]
         row["status"] = status
+        row["status_event_ts"] = at
         history = row["history"]
         assert isinstance(history, list)
         history.append((status, at))

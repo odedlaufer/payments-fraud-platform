@@ -1,9 +1,15 @@
-"""Generates the Flink SQL job for card features from the definitions (ADR-003).
+"""Generates the Flink SQL job for the per-transaction features from the definitions
+(ADR-003): card features, and merchant features from the same topic.
 
 Flink allows one OVER window per SELECT, so features are grouped by window: one view
-per window size, plus one for the previous card-present transaction, joined back to
-each transaction with zero-width interval joins. The same statements run in the
-equality test against a file source and in the deployed job against Kafka.
+per window size, one for the previous card-present transaction, and one per merchant
+window, joined back to each transaction with zero-width interval joins. The same
+statements run in the equality test against a file source and in the deployed job
+against Kafka.
+
+Event time is each event's change time: a creation's event_ts, and for an update the
+simulated time its status changed (status_event_ts). Creations and status changes then
+arrive in event-time order on one topic, so a reversal is never late.
 """
 
 from dataclasses import dataclass
@@ -25,6 +31,8 @@ TXN_FIELDS = {
     "lat": "DOUBLE",
     "lon": "DOUBLE",
     "event_ts": "STRING",
+    "status": "STRING",
+    "status_event_ts": "STRING",
 }
 DTYPES = {
     "bigint": "BIGINT",
@@ -36,8 +44,12 @@ UNITS = {"s": "SECOND", "m": "MINUTE", "h": "HOUR", "d": "DAY"}
 PREVIOUS_KINDS = ("distance_from_previous", "minutes_since_previous")
 
 # Debezium writes timestamptz as ISO-8601 text with 0 to 6 fraction digits, always UTC.
-# Epoch milliseconds, truncated (not rounded), as the definitions require.
-_TS = "COALESCE(`after`.event_ts, `before`.event_ts)"
+# Epoch milliseconds, truncated (not rounded), as the definitions require. The change
+# time: authorization for a creation, the status change for an update.
+_TS = (
+    "CASE WHEN `op` = 'c' THEN `after`.event_ts "
+    "ELSE COALESCE(`after`.status_event_ts, `after`.event_ts, `before`.event_ts) END"
+)
 EVENT_MS = (
     f"UNIX_TIMESTAMP(SUBSTRING({_TS} FROM 1 FOR 19), 'yyyy-MM-dd''T''HH:mm:ss') * 1000 + "
     f"CAST(SUBSTRING(CONCAT(COALESCE(REGEXP_EXTRACT({_TS}, '\\.([0-9]+)', 1), ''), '000') "
@@ -74,18 +86,27 @@ class CardJob:
     defs: Definitions
 
     @property
-    def features(self) -> tuple[Feature, ...]:
+    def card_features(self) -> tuple[Feature, ...]:
         return self.defs.for_entity("card")
+
+    @property
+    def merchant_features(self) -> tuple[Feature, ...]:
+        return self.defs.for_entity("merchant")
+
+    @property
+    def features(self) -> tuple[Feature, ...]:
+        """Everything this job emits per transaction, in definition order."""
+        return tuple(f for f in self.defs.features if f.entity in ("card", "merchant"))
 
     def windows(self) -> list[str]:
         seen: list[str] = []
-        for f in self.features:
+        for f in self.card_features:
             if f.window and f.window not in seen:
                 seen.append(f.window)
         return seen
 
     def previous_filter(self) -> str | None:
-        filters = {f.filter for f in self.features if f.kind in PREVIOUS_KINDS}
+        filters = {f.filter for f in self.card_features if f.kind in PREVIOUS_KINDS}
         if len(filters) > 1:
             raise ValueError(f"previous-transaction features must share one filter: {filters}")
         return filters.pop() if filters else None
@@ -125,7 +146,7 @@ class CardJob:
                 f"RANGE BETWEEN {interval(window)} PRECEDING AND CURRENT ROW)"
             )
             cols: list[str] = []
-            for f in self.features:
+            for f in self.card_features:
                 if f.window != window:
                     continue
                 if f.kind == "window_count":
@@ -159,6 +180,34 @@ class CardJob:
                 f"SUM(lon) {over} AS lon_sum, SUM(event_ms) {over} AS ms_sum "
                 f"FROM card_txn WHERE {flt}"
             )
+        views += self._merchant_views(on_time)
+        return views
+
+    def _merchant_views(self, on_time: str) -> list[str]:
+        """Per merchant window: creations and status changes counted over one OVER window."""
+        views: list[str] = []
+        for f in self.merchant_features:
+            if f.kind != "status_rate":
+                raise NotImplementedError(f"{f.name}: kind {f.kind}")
+            name, window = f.name, str(f.window)
+            views.append(
+                f"CREATE TEMPORARY VIEW {name}_events AS SELECT `after`.transaction_id AS "
+                "transaction_id, `after`.merchant_id AS merchant_id, event_ms, event_time, "
+                "CASE WHEN op = 'c' THEN 1 ELSE 0 END AS created, "
+                "CASE WHEN op = 'u' THEN 1 ELSE 0 END AS changed "
+                f"FROM pg_transactions WHERE (op = 'c' OR (op = 'u' "
+                f"AND `after`.status = '{f.status}' AND `before`.status <> '{f.status}' "
+                f"AND `after`.{f.status_time} IS NOT NULL)) AND ({on_time})"
+            )
+            over = (
+                "OVER (PARTITION BY merchant_id ORDER BY event_time "
+                f"RANGE BETWEEN {interval(window)} PRECEDING AND CURRENT ROW)"
+            )
+            views.append(
+                f"CREATE TEMPORARY VIEW {name}_w AS SELECT transaction_id, event_time, created, "
+                f"SUM(created) {over} AS n_created, SUM(changed) {over} AS n_changed "
+                f"FROM {name}_events"
+            )
         return views
 
     def _expression(self, f: Feature) -> str:
@@ -173,6 +222,9 @@ class CardJob:
         if f.kind == "distance_from_previous":
             prev = haversine("(p.lat_sum - p.lat)", "(p.lon_sum - p.lon)", "p.lat", "p.lon")
             return f"CASE WHEN p.n = 2 THEN {prev} END"
+        if f.kind == "status_rate":
+            m = f"{f.name}_w"
+            return f"CAST({m}.n_changed AS DOUBLE) / {m}.n_created"
         if f.kind == "minutes_since_previous":
             return (
                 "CASE WHEN p.n = 2 "
@@ -190,20 +242,27 @@ class CardJob:
             f"AND {_view(w)}.event_time BETWEEN t.event_time AND t.event_time"
             for w in self.windows()
         )
+        for f in self.merchant_features:
+            m = f"{f.name}_w"
+            joins += (
+                f" JOIN {m} ON {m}.transaction_id = t.transaction_id AND {m}.created = 1 "
+                f"AND {m}.event_time BETWEEN t.event_time AND t.event_time"
+            )
         if self.previous_filter() is not None:
             joins += (
                 " LEFT JOIN card_prev p ON p.transaction_id = t.transaction_id "
                 "AND p.event_time BETWEEN t.event_time AND t.event_time"
             )
         return (
-            f"SELECT t.transaction_id, t.card_id, t.event_ms, t.commit_ms, {cols} "
+            f"SELECT t.transaction_id, t.card_id, t.merchant_id, t.event_ms, t.commit_ms, {cols} "
             f"FROM card_txn t{joins}"
         )
 
     def sink_columns(self) -> str:
         cols = ", ".join(f"{f.name} {DTYPES[f.dtype]}" for f in self.features)
         return (
-            "card_key STRING, transaction_id BIGINT, card_id BIGINT, event_ms BIGINT, "
+            "card_key STRING, transaction_id BIGINT, card_id BIGINT, merchant_id BIGINT, "
+            "event_ms BIGINT, "
             f"commit_ms BIGINT, {cols}, definitions_version INT, computed_at STRING"
         )
 
@@ -260,8 +319,9 @@ class CardJob:
         names = ", ".join(f.name for f in self.features)
         body = (
             "EXECUTE STATEMENT SET\nBEGIN\n"
-            f"INSERT INTO features_card SELECT CAST(card_id AS STRING), transaction_id, card_id, "
-            f"event_ms, commit_ms, {names}, {self.defs.version}, {stamp} FROM ({self.select()});\n"
+            "INSERT INTO features_card SELECT CAST(card_id AS STRING), transaction_id, card_id, "
+            f"merchant_id, event_ms, commit_ms, {names}, {self.defs.version}, {stamp} "
+            f"FROM ({self.select()});\n"
             f"INSERT INTO late_events SELECT '{TOPIC}', transaction_id, card_id, event_ms, "
             f"watermark_at, {stamp} FROM card_late;\n"
             "END;\n"
@@ -269,8 +329,8 @@ class CardJob:
         header = (
             "-- Generated by `uv run features flink` from features/definitions.yml. "
             "Do not edit by hand.\n"
-            "-- Card features (FR-F1, FR-F2, FR-F6): one record per transaction on features.card;\n"
-            "-- transactions behind the 30 s watermark go to dlq.late_events instead.\n\n"
+            "-- Card and merchant features (FR-F1, FR-F2, FR-F6): one record per transaction on\n"
+            "-- features.card; transactions behind the 30 s watermark go to dlq.late_events.\n\n"
         )
         return header + ";\n\n".join(statements) + ";\n\n" + body
 

@@ -18,9 +18,13 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n[%s] %s\n' "$(date +%T)" "$1"; }
 
+# `docker compose start` also starts a service's dependencies, which re-runs one-shots
+# such as postgres-migrate: that would migrate before bronze is paused. --no-deps never does.
+restart_supervisor() { docker compose up -d --no-deps flink-jobs >/dev/null 2>&1; }
+
 step "0/7 stop the job supervisor"
 docker compose stop flink-jobs >/dev/null 2>&1
-trap 'docker compose start flink-jobs >/dev/null 2>&1 || true' EXIT
+trap 'restart_supervisor || true' EXIT
 
 step "1/7 pause bronze-cdc with a savepoint"
 set +e
@@ -36,7 +40,7 @@ case "$status" in
 esac
 
 step "2/7 migrate Postgres"
-make --no-print-directory migrate 2>&1 | grep -E "Applying|Applied|Error|no pending" || echo "  no pending migrations"
+make --no-print-directory migrate 2>&1 | grep -E "Applying|Applied|Error" || echo "  no pending migrations"
 
 step "3/7 regenerate definitions from the Postgres schema"
 uv run python scripts/gen_bronze.py
@@ -53,7 +57,7 @@ step "6/7 dbt run (staging views, silver new columns)"
 (cd dbt && uv run dbt run --profiles-dir . 2>&1) | grep -E "ERROR|Done\."
 
 step "7/7 start the job supervisor"
-docker compose start flink-jobs >/dev/null 2>&1
+restart_supervisor
 trap - EXIT
 
 echo

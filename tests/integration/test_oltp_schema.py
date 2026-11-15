@@ -84,13 +84,7 @@ def test_updated_at_moves_on_update(oltp: Conn) -> None:
         )
         assert changed is True
     finally:
-        # Committed writes reach CDC and SCD2 history, so clean up like the application
-        # does: a delete first stamps its own (later) event_ts (ADR-006).
         oltp.rollback()
-        oltp.execute(
-            "update customers set event_ts = event_ts + interval '1 hour' where customer_id = %s",
-            (customer_id,),
-        )
         oltp.execute("delete from customers where customer_id = %s", (customer_id,))
         oltp.commit()
 
@@ -221,4 +215,20 @@ def test_device_risk_score_column(oltp: Conn) -> None:
         oltp.execute(
             "insert into transactions (card_id, merchant_id, amount, currency, channel, "
             "event_ts, device_risk_score) values (1, 1, 5, 'USD', 'online', now(), 1.5)"
+        )
+
+
+def test_status_event_ts_column(oltp: Conn) -> None:
+    """When the status last changed: nullable, never before the authorization."""
+    row = oltp.execute(
+        "select is_nullable, data_type from information_schema.columns "
+        "where table_name = 'transactions' and column_name = 'status_event_ts'"
+    ).fetchone()
+    assert row == ("YES", "timestamp with time zone")
+    _customer(oltp)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        oltp.execute(
+            "insert into transactions (card_id, merchant_id, amount, currency, channel, "
+            "event_ts, status_event_ts) values (1, 1, 5, 'USD', 'online', now(), "
+            "now() - interval '1 hour')"
         )

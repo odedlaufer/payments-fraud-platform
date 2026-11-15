@@ -113,8 +113,8 @@ CREATE TEMPORARY TABLE kafka_sessions (
 );
 
 CREATE TEMPORARY TABLE kafka_transactions (
-    `before` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4)>,
-    `after` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4)>,
+    `before` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4), `status_event_ts` STRING>,
+    `after` ROW<`transaction_id` BIGINT, `card_id` BIGINT, `merchant_id` BIGINT, `session_id` BIGINT, `amount` DECIMAL(12, 2), `currency` STRING, `channel` STRING, `status` STRING, `lat` DOUBLE, `lon` DOUBLE, `event_ts` STRING, `created_at` STRING, `updated_at` STRING, `device_risk_score` DECIMAL(5, 4), `status_event_ts` STRING>,
     `source` ROW<`ts_ms` BIGINT, `lsn` BIGINT, `txId` BIGINT, `snapshot` STRING>,
     `op` STRING,
     `ts_ms` BIGINT,

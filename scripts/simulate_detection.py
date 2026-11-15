@@ -18,11 +18,14 @@ from decision_service.context import RULE_NAMES
 from features.model import load
 from features.reference import (
     CustomerTxn,
+    MerchantTxn,
     ProfileChange,
     Session,
+    StatusChange,
     Txn,
     card_features,
     customer_features,
+    merchant_features,
 )
 from features.timeparse import dt_to_ms
 from rules.engine import RuleSet
@@ -85,6 +88,14 @@ def main() -> int:
         for i, r in rows
     ]
     for i, values in customer_features(load(), asks, sessions, changes, owners).items():
+        features[i].update(values)
+    m_txns = [MerchantTxn(i, int(str(r["merchant_id"])), dt_to_ms(r["event_ts"])) for i, r in rows]  # type: ignore[arg-type]
+    statuses = [
+        StatusChange(i, int(str(r["merchant_id"])), status, dt_to_ms(at))
+        for i, r in rows
+        for status, at in (h for h in r["history"] if isinstance(h, tuple))  # type: ignore[attr-defined]
+    ]
+    for i, values in merchant_features(load(), m_txns, statuses).items():
         features[i].update(values)
     ruleset = RuleSet.load(args.rules, RULE_NAMES)
     outcome: dict[int, str] = {}

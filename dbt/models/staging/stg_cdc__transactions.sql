@@ -27,6 +27,7 @@ select
     cast(from_iso8601_timestamp_nanos(r.created_at) as timestamp(6) with time zone) as created_at,
     cast(from_iso8601_timestamp_nanos(r.updated_at) as timestamp(6) with time zone) as updated_at,
     r.device_risk_score as device_risk_score,
+    cast(from_iso8601_timestamp_nanos(r.status_event_ts) as timestamp(6) with time zone) as status_event_ts,
     op = 'd' as is_deleted,
     op as _op,
     commit_ts as _commit_ts,

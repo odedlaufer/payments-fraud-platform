@@ -125,7 +125,6 @@ def avro_schema() -> dict[str, Any]:
             "default": None,
         }
         for f in DEFS.features
-        if f.entity in ("card", "customer")
     ]
     return {
         "type": "record",

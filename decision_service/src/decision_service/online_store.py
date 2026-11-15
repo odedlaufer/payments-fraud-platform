@@ -102,13 +102,18 @@ class CardFeatures:
 class OnlineStore:
     def __init__(self, client: redis.Redis, defs: Definitions) -> None:
         self.client = client
-        self.features = defs.for_entity("card")
+        self.card_features = defs.for_entity("card")
+        self.merchant_features = defs.for_entity("merchant")
+        # A per-transaction snapshot holds everything the Flink job computes.
+        self.features = tuple(f for f in defs.features if f.entity in ("card", "merchant"))
         self._newer_only = client.register_script(NEWER_ONLY)
         self._earliest = client.register_script(EARLIEST)
 
-    def fields(self, record: dict[str, Any], written_at_ms: int) -> list[str]:
+    def fields(
+        self, record: dict[str, Any], written_at_ms: int, features: tuple[Any, ...] | None = None
+    ) -> list[str]:
         pairs: list[str] = []
-        for f in self.features:
+        for f in self.features if features is None else features:
             pairs += [f.name, encode(record[f.name])]
         pairs += [
             "transaction_id", encode(record["transaction_id"]),
@@ -122,9 +127,22 @@ class OnlineStore:
     def upsert_card(self, record: dict[str, Any], written_at_ms: int | None = None) -> bool:
         """True if the record is stored (not older than the current one)."""
         stamp = written_at_ms if written_at_ms is not None else int(time.time() * 1000)
+        fields = self.fields(record, stamp, self.card_features)
         result = self._newer_only(
             keys=[card_key(int(record["card_id"]))],
-            args=[record["event_ms"], record["transaction_id"], *self.fields(record, stamp)],
+            args=[record["event_ms"], record["transaction_id"], *fields],
+        )
+        return bool(result)
+
+    def upsert_merchant(self, record: dict[str, Any], written_at_ms: int | None = None) -> bool:
+        """merchant:{id} holds the merchant's newest features (same newer-only rule)."""
+        if not self.merchant_features or record.get("merchant_id") is None:
+            return False
+        stamp = written_at_ms if written_at_ms is not None else int(time.time() * 1000)
+        fields = self.fields(record, stamp, self.merchant_features)
+        result = self._newer_only(
+            keys=[f"merchant:{int(record['merchant_id'])}"],
+            args=[record["event_ms"], record["transaction_id"], *fields],
         )
         return bool(result)
 
@@ -168,7 +186,9 @@ class OnlineStore:
             pipe.set(decided_key(i), "1", ex=DECIDED_TTL_S, nx=True)
         pipe.execute()
 
-    def _features(self, raw: dict[str, str], card_id: int) -> CardFeatures:
+    def _features(
+        self, raw: dict[str, str], card_id: int, features: tuple[Any, ...] | None = None
+    ) -> CardFeatures:
         return CardFeatures(
             card_id=card_id,
             transaction_id=int(raw["transaction_id"]),
@@ -176,7 +196,10 @@ class OnlineStore:
             definitions_version=int(raw["definitions_version"]),
             computed_at=raw["computed_at"],
             written_at_ms=int(raw["written_at_ms"]),
-            values={f.name: decode(raw.get(f.name, ""), f.dtype) for f in self.features},
+            values={
+                f.name: decode(raw.get(f.name, ""), f.dtype)
+                for f in (self.features if features is None else features)
+            },
         )
 
     # ------------------------------------------------- customer context (ADR-007)
@@ -233,4 +256,4 @@ class OnlineStore:
 
     def get_card(self, card_id: int) -> CardFeatures | None:
         raw = cast(dict[str, str], self.client.hgetall(card_key(card_id)))
-        return self._features(raw, card_id) if raw else None
+        return self._features(raw, card_id, self.card_features) if raw else None

@@ -177,3 +177,53 @@ def customer_features(
                 raise NotImplementedError(f"{f.name}: kind {f.kind} is not a customer feature")
         result[t.transaction_id] = values
     return result
+
+
+# ------------------------------------------------------------------ merchant features
+
+
+@dataclass(frozen=True)
+class MerchantTxn:
+    transaction_id: int
+    merchant_id: int
+    event_ms: int  # authorization (creation) time
+
+
+@dataclass(frozen=True)
+class StatusChange:
+    """A transaction reaching a status, at the simulated time it happened."""
+
+    transaction_id: int
+    merchant_id: int
+    status: str
+    event_ms: int
+
+
+def merchant_features(
+    defs: Definitions, txns: Iterable[MerchantTxn], changes: Iterable[StatusChange]
+) -> dict[int, dict[str, object]]:
+    """Merchant feature values per transaction_id: of the status changes that happened in
+    the window, how many per transaction created in the window (current one included).
+
+    Indexed by merchant (and status), so cost grows with each merchant's own history.
+    """
+    txn_list = list(txns)
+    created: dict[int, list[int]] = defaultdict(list)
+    for t in txn_list:
+        created[t.merchant_id].append(t.event_ms)
+    by_status: dict[tuple[int, str], list[int]] = defaultdict(list)
+    for c in changes:
+        by_status[(c.merchant_id, c.status)].append(c.event_ms)
+    result: dict[int, dict[str, object]] = {}
+    for t in txn_list:
+        values: dict[str, object] = {}
+        for f in defs.for_entity("merchant"):
+            if f.kind != "status_rate":
+                raise NotImplementedError(f"{f.name}: kind {f.kind} is not a merchant feature")
+            lo = t.event_ms - _window_ms(f)
+            n_created = sum(lo <= ms <= t.event_ms for ms in created[t.merchant_id])
+            changed = by_status[(t.merchant_id, str(f.status))]
+            n_status = sum(lo <= ms <= t.event_ms for ms in changed)
+            values[f.name] = n_status / n_created if n_created else None
+        result[t.transaction_id] = values
+    return result

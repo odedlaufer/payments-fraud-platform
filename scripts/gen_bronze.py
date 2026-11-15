@@ -124,6 +124,68 @@ WITH (format = 'PARQUET', partitioning = ARRAY['day(commit_ts)']);
     return "".join(out)
 
 
+LIVE_SOURCE = """\
+    'connector' = 'kafka',
+    -- Exact-match pattern with discovery: the source starts even before Debezium has
+    -- created the topic (e.g. chargebacks before the first chargeback), then picks it up.
+    'topic-pattern' = 'pg\\.public\\.{table}',
+    'scan.topic-partition-discovery.interval' = '30s',
+    'properties.bootstrap.servers' = 'redpanda:9092',
+    'properties.group.id' = 'bronze-cdc',
+    'scan.startup.mode' = 'group-offsets',
+    'properties.auto.offset.reset' = 'earliest',
+    'value.format' = 'avro-confluent',
+    'value.avro-confluent.url' = 'http://redpanda:8081'"""
+
+CATALOG = """
+CREATE CATALOG lake WITH (
+    'type' = 'iceberg',
+    'catalog-type' = 'rest',
+    'uri' = 'http://lakekeeper:8181/catalog',
+    'warehouse' = 'lakehouse',
+    'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
+    's3.endpoint' = 'http://seaweedfs:8333',
+    's3.path-style-access' = 'true',
+    'client.region' = 'us-east-1'
+);
+"""
+
+
+def kafka_source(table: str, columns: list[Column], options: str) -> str:
+    """The Kafka source of one CDC topic: Debezium envelope plus Kafka metadata."""
+    row = ", ".join(f"`{c.name}` {c.flink_type()}" for c in columns)
+    return f"""
+CREATE TEMPORARY TABLE kafka_{table} (
+    `before` ROW<{row}>,
+    `after` ROW<{row}>,
+    `source` ROW<`ts_ms` BIGINT, `lsn` BIGINT, `txId` BIGINT, `snapshot` STRING>,
+    `op` STRING,
+    `ts_ms` BIGINT,
+    `kafka_partition` INT METADATA FROM 'partition' VIRTUAL,
+    `kafka_offset` BIGINT METADATA FROM 'offset' VIRTUAL,
+    `kafka_timestamp` TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
+) WITH (
+{options}
+);
+"""
+
+
+def bronze_insert(table: str, where: str = "") -> str:
+    """Append change events to lake.bronze.cdc_{table}, as the live job does."""
+    return f"""INSERT INTO lake.bronze.cdc_{table}
+SELECT
+    `op`, `before`, `after`,
+    TO_TIMESTAMP_LTZ(`source`.`ts_ms`, 3) AS commit_ts,
+    `source`.`lsn` AS lsn,
+    `source`.`txId` AS tx_id,
+    `source`.`snapshot` AS snapshot,
+    TO_TIMESTAMP_LTZ(`ts_ms`, 3) AS connector_ts,
+    `kafka_partition`, `kafka_offset`, `kafka_timestamp`,
+    CURRENT_TIMESTAMP AS ingested_at
+FROM kafka_{table}{where};
+"""
+
+
 def flink_job(columns: dict[str, list[Column]]) -> str:
     out = [
         HEADER,
@@ -136,63 +198,14 @@ def flink_job(columns: dict[str, list[Column]]) -> str:
 SET 'pipeline.name' = 'bronze-cdc';
 SET 'execution.runtime-mode' = 'streaming';
 SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
-
-CREATE CATALOG lake WITH (
-    'type' = 'iceberg',
-    'catalog-type' = 'rest',
-    'uri' = 'http://lakekeeper:8181/catalog',
-    'warehouse' = 'lakehouse',
-    'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
-    's3.endpoint' = 'http://seaweedfs:8333',
-    's3.path-style-access' = 'true',
-    'client.region' = 'us-east-1'
-);
-""",
+"""
+        + CATALOG,
     ]
     for table in TABLES:
-        row = ", ".join(f"`{c.name}` {c.flink_type()}" for c in columns[table])
-        out.append(
-            f"""
-CREATE TEMPORARY TABLE kafka_{table} (
-    `before` ROW<{row}>,
-    `after` ROW<{row}>,
-    `source` ROW<`ts_ms` BIGINT, `lsn` BIGINT, `txId` BIGINT, `snapshot` STRING>,
-    `op` STRING,
-    `ts_ms` BIGINT,
-    `kafka_partition` INT METADATA FROM 'partition' VIRTUAL,
-    `kafka_offset` BIGINT METADATA FROM 'offset' VIRTUAL,
-    `kafka_timestamp` TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
-) WITH (
-    'connector' = 'kafka',
-    -- Exact-match pattern with discovery: the source starts even before Debezium has
-    -- created the topic (e.g. chargebacks before the first chargeback), then picks it up.
-    'topic-pattern' = 'pg\\.public\\.{table}',
-    'scan.topic-partition-discovery.interval' = '30s',
-    'properties.bootstrap.servers' = 'redpanda:9092',
-    'properties.group.id' = 'bronze-cdc',
-    'scan.startup.mode' = 'group-offsets',
-    'properties.auto.offset.reset' = 'earliest',
-    'value.format' = 'avro-confluent',
-    'value.avro-confluent.url' = 'http://redpanda:8081'
-);
-"""
-        )
+        out.append(kafka_source(table, columns[table], LIVE_SOURCE.format(table=table)))
     out.append("\nEXECUTE STATEMENT SET\nBEGIN\n")
     for table in TABLES:
-        out.append(
-            f"""INSERT INTO lake.bronze.cdc_{table}
-SELECT
-    `op`, `before`, `after`,
-    TO_TIMESTAMP_LTZ(`source`.`ts_ms`, 3) AS commit_ts,
-    `source`.`lsn` AS lsn,
-    `source`.`txId` AS tx_id,
-    `source`.`snapshot` AS snapshot,
-    TO_TIMESTAMP_LTZ(`ts_ms`, 3) AS connector_ts,
-    `kafka_partition`, `kafka_offset`, `kafka_timestamp`,
-    CURRENT_TIMESTAMP AS ingested_at
-FROM kafka_{table};
-"""
-        )
+        out.append(bronze_insert(table))
     out.append("END;\n")
     return "".join(out)
 

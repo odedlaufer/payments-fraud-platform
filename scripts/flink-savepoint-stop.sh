@@ -14,11 +14,16 @@ if [[ -z "$jid" ]]; then
   echo "${name}: not running" >&2
   exit 2
 fi
-out=$(docker compose exec -T flink-jobmanager ./bin/flink stop "$jid" 2>&1) || true
-path=$(grep -oE 's3://[^ ]+' <<< "$out" | tail -1 || true)
-if [[ -z "$path" ]]; then
-  echo "${name}: stop with savepoint failed" >&2
-  echo "$out" | tail -20 >&2
-  exit 1
-fi
-echo "$path"
+# A savepoint can fail transiently (for example while a checkpoint is in flight): retry.
+for attempt in 1 2 3; do
+  out=$(docker compose exec -T flink-jobmanager ./bin/flink stop "$jid" 2>&1) || true
+  path=$(grep -oE 's3://[^ ]+' <<< "$out" | tail -1 || true)
+  if [[ -n "$path" ]]; then
+    echo "$path"
+    exit 0
+  fi
+  echo "${name}: stop with savepoint failed (attempt ${attempt}/3):" >&2
+  echo "$out" | grep -E "Exception|Caused by|failed|rror" | tail -5 >&2
+  sleep 10
+done
+exit 1
