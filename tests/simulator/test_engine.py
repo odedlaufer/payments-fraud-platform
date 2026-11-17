@@ -31,12 +31,17 @@ def make_world(seed: int = 3, customers: int = 300, merchants: int = 60) -> Worl
 
 
 def simulate(
-    hours: float, *, seed: int = 11, rates: Rates | None = None, world: World | None = None
+    hours: float,
+    *,
+    seed: int = 11,
+    rates: Rates | None = None,
+    world: World | None = None,
+    tx_per_sim_second: float = TX_PER_SIM_SECOND,
 ) -> tuple[Engine, MemoryStore]:
     world = world or make_world()
     store = MemoryStore(world)
     engine = Engine(
-        world, store, seed=seed, tx_per_sim_second=TX_PER_SIM_SECOND, rates=rates, start=START
+        world, store, seed=seed, tx_per_sim_second=tx_per_sim_second, rates=rates, start=START
     )
     end = START + timedelta(hours=hours)
     while engine.now < end:
@@ -61,9 +66,13 @@ def test_poisson_mean_and_edges() -> None:
 
 
 def test_transaction_volume_matches_rate(day: tuple[Engine, MemoryStore]) -> None:
+    """The arrival rate drives legitimate volume; injected attacks come on top."""
     _, store = day
     expected = TX_PER_SIM_SECOND * 86_400
-    assert store.ops["transactions", "insert"] == pytest.approx(expected, rel=0.01)
+    legit = sum(
+        1 for i in store.transactions if store.truth.get(i, "friendly_fraud") == "friendly_fraud"
+    )
+    assert legit == pytest.approx(expected, rel=0.01)
 
 
 def test_every_transaction_starts_pending_then_resolves(day: tuple[Engine, MemoryStore]) -> None:

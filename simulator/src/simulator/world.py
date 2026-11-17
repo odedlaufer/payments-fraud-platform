@@ -49,6 +49,8 @@ class World:
     merchants: dict[int, MerchantState]
     last_event_ts: datetime | None
     pending_transactions: list[tuple[int, datetime]] = field(default_factory=list)
+    # (transaction_id, reason_code, file_at) for chargebacks still to be filed (FR-SIM4)
+    pending_chargebacks: list[tuple[int, str, datetime]] = field(default_factory=list)
 
     def merchants_in(self, country_code: str) -> list[MerchantState]:
         return [m for m in self.merchants.values() if m.country_code == country_code]

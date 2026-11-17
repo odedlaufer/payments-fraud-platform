@@ -38,6 +38,12 @@ class Rates:
     card_testing_attacks: float = 4.0
     impossible_travel_attacks: float = 6.0
     account_takeover_attacks: float = 3.0
+    merchant_bust_out_attacks: float = 0.3
+
+    # Labels (FR-SIM4): chargebacks are filed 1 to 60 simulated days after the transaction,
+    # most within about a week. Friendly fraud: a legitimate online purchase disputed anyway.
+    chargeback_delay_days: tuple[float, float, float] = (1.0, 60.0, 7.0)  # low, high, mode
+    friendly_fraud_probability: float = 0.002
 
     def with_fraud(self, multiplier: float) -> "Rates":
         """Scales the injected attack rates (0 turns fraud off)."""
@@ -46,6 +52,7 @@ class Rates:
             card_testing_attacks=self.card_testing_attacks * multiplier,
             impossible_travel_attacks=self.impossible_travel_attacks * multiplier,
             account_takeover_attacks=self.account_takeover_attacks * multiplier,
+            merchant_bust_out_attacks=self.merchant_bust_out_attacks * multiplier,
         )
 
     def scaled(self, change_multiplier: float) -> "Rates":

@@ -27,6 +27,17 @@ for _city in CITIES:
 COUNTRIES = sorted(CURRENCY_BY_COUNTRY)
 HIGH_VALUE_MCCS = ("5732", "4829", "4511", "7011")  # electronics, transfers, airlines, hotels
 FAR_KM = 3_000.0  # an impossible-travel attack lands at least this far from the card
+
+# FR-SIM4: how likely an approved fraudulent transaction is disputed. Tiny card-testing
+# payments often go unnoticed; stolen or hijacked spend almost always comes back.
+CHARGEBACK_PROBABILITY = {
+    "card_testing": 0.3,
+    "impossible_travel": 0.9,
+    "account_takeover": 0.9,
+    "merchant_bust_out": 0.8,
+}
+# Card-network style reason codes: fraud card-absent, counterfeit card-present, dispute.
+REASON_FRAUD_ONLINE, REASON_FRAUD_PRESENT, REASON_FRIENDLY = "10.4", "10.2", "13.1"
 DAY_S = 86_400.0
 
 
@@ -73,6 +84,7 @@ class Engine:
         self.fake.seed_instance(seed)
         self.now = start
         self._queue: list[_Scheduled] = []
+        self._disputed: set[int] = set()  # charged back: a refund can no longer happen
         self._seq = 0
         self._tx_tokens = 0.0
         self._last_expiry_check = start
@@ -88,6 +100,10 @@ class Engine:
         for transaction_id, _ in world.pending_transactions:
             self._schedule(start, self._finalise(transaction_id))
         world.pending_transactions.clear()
+        # Chargebacks decided by earlier runs are filed when they fall due (FR-SIM4).
+        for transaction_id, reason, file_at in world.pending_chargebacks:
+            self._schedule(max(file_at, start), self._file_chargeback(transaction_id, reason))
+        world.pending_chargebacks.clear()
 
     # ------------------------------------------------------------------ scheduling
 
@@ -124,6 +140,7 @@ class Engine:
             (self.rates.card_testing_attacks, 1, self._attack_card_testing),
             (self.rates.impossible_travel_attacks, 1, self._attack_impossible_travel),
             (self.rates.account_takeover_attacks, 1, self._attack_account_takeover),
+            (self.rates.merchant_bust_out_attacks, 1, self._attack_merchant_bust_out),
         )
         for rate, pool, action in processes:
             for _ in range(poisson(self.rng, rate * pool * days)):
@@ -251,10 +268,19 @@ class Engine:
         )
         transaction_id = self.store.insert_transaction(txn)
         delay = self.rng.uniform(*self.rates.status_delay_s)
-        self._schedule(at + timedelta(seconds=delay), self._finalise(transaction_id, card.card_id))
+        self._schedule(
+            at + timedelta(seconds=delay),
+            self._finalise(transaction_id, card.card_id, online=online),
+        )
 
     def _finalise(
-        self, transaction_id: int, card_id: int | None = None
+        self,
+        transaction_id: int,
+        card_id: int | None = None,
+        *,
+        online: bool = False,
+        pattern: str | None = None,
+        reversal_probability: float | None = None,
     ) -> Callable[[datetime], None]:
         def run(at: datetime) -> None:
             card = self.world.cards.get(card_id) if card_id is not None else None
@@ -263,14 +289,44 @@ class Engine:
             self.store.update_transaction_status(
                 transaction_id, "approved" if approved else "declined", at
             )
-            if approved and self.rng.random() < self.rates.reversal_probability:
+            if not approved:
+                return
+            refund = (
+                self.rates.reversal_probability
+                if reversal_probability is None
+                else reversal_probability
+            )
+            if self.rng.random() < refund:
                 delay = self.rng.uniform(*self.rates.reversal_delay_s)
                 self._schedule(at + timedelta(seconds=delay), self._reverse(transaction_id))
+            if pattern is not None:
+                if self.rng.random() < CHARGEBACK_PROBABILITY[pattern]:
+                    reason = REASON_FRAUD_ONLINE if online else REASON_FRAUD_PRESENT
+                    self._promise_chargeback(transaction_id, reason, at)
+            elif online and self.rng.random() < self.rates.friendly_fraud_probability:
+                # Legitimate, but the cardholder disputes it anyway: label noise.
+                self.store.insert_truth(transaction_id, "friendly_fraud")
+                self._promise_chargeback(transaction_id, REASON_FRIENDLY, at)
+
+        return run
+
+    def _promise_chargeback(self, transaction_id: int, reason: str, at: datetime) -> None:
+        low, high, mode = self.rates.chargeback_delay_days
+        file_at = at + timedelta(days=self.rng.triangular(low, high, mode))
+        self.store.schedule_chargeback(transaction_id, reason, file_at)
+        self._schedule(file_at, self._file_chargeback(transaction_id, reason))
+
+    def _file_chargeback(self, transaction_id: int, reason: str) -> Callable[[datetime], None]:
+        def run(at: datetime) -> None:
+            if self.store.file_chargeback(transaction_id, reason, at):
+                self._disputed.add(transaction_id)
 
         return run
 
     def _reverse(self, transaction_id: int) -> Callable[[datetime], None]:
         def run(at: datetime) -> None:
+            if transaction_id in self._disputed:
+                return  # the cardholder was already refunded through the chargeback
             self.store.update_transaction_status(transaction_id, "reversed", at)
 
         return run
@@ -335,9 +391,12 @@ class Engine:
     def _delete_merchant(self, at: datetime) -> None:
         if len(self.world.merchants) <= 1:
             return
-        merchant_id = self.rng.choice(list(self.world.merchants))
-        self.world.merchants.pop(merchant_id)
-        self.store.delete_merchant(merchant_id, at)
+        self._remove_merchant(self.rng.choice(list(self.world.merchants)), at)
+
+    def _remove_merchant(self, merchant_id: int, at: datetime) -> None:
+        if merchant_id in self.world.merchants and len(self.world.merchants) > 1:
+            self.world.merchants.pop(merchant_id)
+            self.store.delete_merchant(merchant_id, at)
 
     # --------------------------------------------------------------- fraud (FR-SIM3)
 
@@ -351,6 +410,7 @@ class Engine:
         session_id: int | None = None,
         risk: Decimal | None = None,
         card_present: bool = False,
+        reversal_probability: float | None = None,
     ) -> Callable[[datetime], None]:
         """A labelled fraudulent transaction, created when its scheduled time comes."""
 
@@ -374,7 +434,14 @@ class Engine:
             transaction_id = self.store.insert_transaction(txn)
             self.store.insert_truth(transaction_id, pattern)
             delay = self.rng.uniform(*self.rates.status_delay_s)
-            self._schedule(at + timedelta(seconds=delay), self._finalise(transaction_id, card_id))
+            finalise = self._finalise(
+                transaction_id,
+                card_id,
+                online=not card_present,
+                pattern=pattern,
+                reversal_probability=reversal_probability,
+            )
+            self._schedule(at + timedelta(seconds=delay), finalise)
 
         return run
 
@@ -478,8 +545,12 @@ class Engine:
                 cust.customer_id, device, self._ip(), abroad, when
             )
             spend = when
+            # Choose merchants at login: one picked earlier may have closed meanwhile.
+            still_open = self._live(high_value)
+            if not still_open:
+                return
             for merchant_id in self.rng.sample(
-                high_value, min(len(high_value), self.rng.randint(2, 4))
+                still_open, min(len(still_open), self.rng.randint(2, 4))
             ):
                 spend += timedelta(minutes=self.rng.uniform(1, 20))
                 category = CATEGORY_BY_MCC.get(self.world.merchants[merchant_id].mcc, CATEGORIES[0])
@@ -497,3 +568,28 @@ class Engine:
                 )
 
         self._schedule(login, take_over)
+
+    def _attack_merchant_bust_out(self, at: datetime) -> None:
+        """A merchant takes a burst of high-ticket charges on many cards over 1 to 3 days,
+        refunds a large share of them (the refund-rate spike), then disappears."""
+        online = self._live(self._online_merchants)
+        cards = [c.card_id for c in self.world.cards.values() if c.status == "active"]
+        if not online or not cards:
+            return
+        merchant_id = self.rng.choice(online)
+        category = CATEGORY_BY_MCC.get(self.world.merchants[merchant_id].mcc, CATEGORIES[0])
+        span = timedelta(days=self.rng.uniform(1, 3))
+        for _ in range(self.rng.randint(30, 80)):
+            when = at + span * self.rng.random()
+            amount = Decimal(str(round(category.amount_median * self.rng.uniform(2, 5), 2)))
+            charge = self._fraud(
+                self.rng.choice(cards),
+                merchant_id,
+                amount.quantize(Decimal("0.01")),
+                "merchant_bust_out",
+                reversal_probability=0.4,
+            )
+            self._schedule(when, charge)
+        self._schedule(
+            at + span + timedelta(hours=1), lambda when: self._remove_merchant(merchant_id, when)
+        )

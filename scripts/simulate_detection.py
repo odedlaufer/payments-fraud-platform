@@ -106,19 +106,21 @@ def main() -> int:
         ev = ruleset.evaluate(ctx)
         outcome[i], fired[i] = ev.outcome, ev.fired
 
-    legit = [i for i, _ in rows if i not in store.truth]
+    # Friendly fraud is a legitimate transaction disputed anyway: label noise, not an attack.
+    fraud = {i: p for i, p in store.truth.items() if p != "friendly_fraud"}
+    legit = [i for i, _ in rows if i not in fraud]
     flagged_legit = Counter(r for i in legit for r in fired[i])
     fp = sum(outcome[i] != "approve" for i in legit)
     after = after_fraud(legit, rows, store)
     collateral = sum(outcome[i] != "approve" for i in legit if i in after)
     print(f"rules v{ruleset.version}: {len(rows)} transactions over {args.days:g} simulated days, "
-          f"{len(store.truth)} fraudulent")  # fmt: skip
+          f"{len(fraud)} fraudulent")  # fmt: skip
     print(f"legitimate flagged: {fp} of {len(legit)} ({100 * fp / len(legit):.3f}%) "
           f"by {dict(flagged_legit.most_common())}")  # fmt: skip
     print(f"  of which {collateral} follow a fraudulent purchase on the same card within 24 h")
 
     by_pattern: dict[str, list[int]] = defaultdict(list)
-    for i, pattern in store.truth.items():
+    for i, pattern in fraud.items():
         by_pattern[pattern].append(i)
     print(f"{'pattern':<18}{'txns':>6}{'flagged':>9}{'declined':>10}{'txn recall':>12}"
           f"{'attacks':>9}{'caught':>8}  rules")  # fmt: skip
@@ -142,7 +144,7 @@ def after_fraud(
     out = set()
     for i, r in rows:
         card, at = int(str(r["card_id"])), r["event_ts"]
-        if i in store.truth:
+        if store.truth.get(i, "friendly_fraud") != "friendly_fraud":
             last_fraud[card] = at  # type: ignore[assignment]
         elif card in last_fraud and at - last_fraud[card] <= timedelta(hours=24):  # type: ignore[operator]
             out.add(i)
@@ -150,10 +152,13 @@ def after_fraud(
 
 
 def attack_groups(ids: list[int], store: MemoryStore) -> list[list[int]]:
-    """Transactions of one attack: same card, less than 3 hours apart."""
+    """Transactions of one attack, less than 3 hours apart: same card, or for a merchant
+    bust-out (many cards, one merchant) the same merchant."""
     by_card: dict[int, list[int]] = defaultdict(list)
     for i in ids:
-        by_card[int(str(store.transactions[i]["card_id"]))].append(i)
+        row = store.transactions[i]
+        key = "merchant_id" if store.truth.get(i) == "merchant_bust_out" else "card_id"
+        by_card[int(str(row[key]))].append(i)
     groups: list[list[int]] = []
     for seq in by_card.values():
         seq.sort(key=lambda i: store.transactions[i]["event_ts"])  # type: ignore[arg-type,return-value]

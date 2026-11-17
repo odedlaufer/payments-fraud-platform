@@ -73,7 +73,10 @@ def test_customers_take_trips(three_days: tuple[Engine, MemoryStore]) -> None:
 def test_every_pattern_is_injected_and_labelled(three_days: tuple[Engine, MemoryStore]) -> None:
     _, store = three_days
     patterns = set(store.truth.values())
-    assert patterns == {"card_testing", "impossible_travel", "account_takeover"}
+    assert patterns == {
+        "card_testing", "impossible_travel", "account_takeover", "merchant_bust_out",
+        "friendly_fraud",  # legitimate, disputed anyway: label noise, not an attack
+    }  # fmt: skip
     assert all(i in tx(store) for i in store.truth)
 
 
@@ -128,8 +131,9 @@ def test_account_takeover_spends_big_from_a_new_device(
 
 
 def test_fraud_can_be_turned_off() -> None:
+    """No attacks; friendly fraud (a legitimate dispute) can still happen."""
     _, store = simulate(6, rates=Rates().with_fraud(0))
-    assert store.truth == {}
+    assert set(store.truth.values()) <= {"friendly_fraud"}
 
 
 def test_trips_have_transit_without_card_present() -> None:
