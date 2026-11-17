@@ -70,6 +70,8 @@ REQUIRED_FILES = [
     "scripts/simulate_detection.py",
     "scripts/phase3-gate.sh",
     "scripts/bronze_replay.py",
+    "scripts/gen_decisions_bronze.py",
+    "scripts/bronze_decisions_reconcile.py",
     "rules/rules_v1.yml",
     "rules/rules_v2.yml",
     "decision_service/Dockerfile",

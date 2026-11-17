@@ -115,6 +115,7 @@ if has_profile stream; then
   wait_for "flink" flink_ready
   wait_for "job:bronze-cdc" flink_job_running bronze-cdc
   wait_for "job:features-card" flink_job_running features-card
+  wait_for "job:bronze-decisions" flink_job_running bronze-decisions
   wait_for "redis" docker compose exec -T redis redis-cli ping
   wait_for "feature-sink" service_healthy feature-sink
   wait_for "decision-service" service_healthy decision-service
