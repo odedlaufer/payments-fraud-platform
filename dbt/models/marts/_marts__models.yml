@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: fct_labels
+    description: >-
+      One row per transaction: label (1 if a chargeback was filed), when it became known,
+      and maturity, all in simulated time (FR-PIT1, ADR-008).
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: label
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false  # label is an integer; dbt quotes values by default
+      - name: matures_at
+        data_tests: [not_null]
+
+  - name: fct_transactions
+    description: >-
+      One row per transaction with card, customer and merchant attributes as of its event
+      time, from the SCD2 history (FR-L3).
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: Every transaction finds the card version valid at its event time.
+        data_tests: [not_null]
+      - name: card_status_at_event
+        data_tests: [not_null]
+      - name: customer_risk_tier_at_event
+        description: Every transaction finds the customer version valid at its event time.
+        data_tests: [not_null]
+      - name: merchant_mcc_at_event
+        description: Every transaction finds the merchant version valid at its event time.
+        data_tests: [not_null]

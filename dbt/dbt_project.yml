@@ -32,3 +32,7 @@ models:
     scd2:
       +schema: snapshots
       +materialized: table
+    # Point-in-time facts for training sets, parity and backtests (Phase 4).
+    marts:
+      +schema: marts
+      +materialized: table
