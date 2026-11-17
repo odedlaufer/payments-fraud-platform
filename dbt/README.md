@@ -7,6 +7,7 @@ Transformations on Trino over the Iceberg lakehouse (PRD 5.5).
 | staging | `stg_cdc__{table}`: one typed row per change event (views) | `lake.bronze.cdc_{table}` |
 | silver | `{table}_current`: one row per key, latest committed state (incremental MERGE) | staging |
 | snapshots | `{customers,cards,merchants}_scd2`: one row per version, `valid_from` / `valid_to` / `is_current` | staging (ADR-006) |
+| marts | `fct_labels`: label, `label_known_at`, maturity (simulated time, ADR-008); `fct_transactions`: dimensions as of event time | silver, snapshots |
 
 Staging models and the bronze sources are generated from the Postgres schema by `make gen-bronze`; do not edit them by hand.
 
