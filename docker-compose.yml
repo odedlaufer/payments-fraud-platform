@@ -434,7 +434,11 @@ services:
   bronze-ddl:
     image: trinodb/trino:484
     profiles: [stream]
-    entrypoint: ["trino", "--server", "http://trino:8080", "-f", "/ddl/bronze.sql"]
+    # CDC bronze (from the Postgres schema), then decisions bronze (from the decision schema).
+    entrypoint:
+      - sh
+      - -c
+      - trino --server http://trino:8080 -f /ddl/bronze.sql && trino --server http://trino:8080 -f /ddl/bronze_decisions.sql
     volumes:
       - ./trino/ddl:/ddl:ro
     depends_on:

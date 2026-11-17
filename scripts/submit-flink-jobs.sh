@@ -15,6 +15,7 @@ cd /opt/flink
 JOBS=(
   "bronze-cdc:/opt/flink/sql/bronze/bronze_cdc.sql"
   "features-card:/opt/flink/sql/features/card_features.sql"
+  "bronze-decisions:/opt/flink/sql/bronze/bronze_decisions.sql"
 )
 RESTORE_PATH="${RESTORE_PATH:-}"
 ONLY_JOB="${ONLY_JOB:-}"

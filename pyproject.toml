@@ -50,8 +50,9 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "RUF"]
 # trino/ in the repo is Trino server config, not the Python client.
 known-third-party = ["trino"]
 known-first-party = [
-    "simulator", "features", "decision_service", "rules", "cdc_reconcile", "gen_bronze", "features_check", "decisions_check", "bronze_replay"
-]
+    "simulator", "features", "decision_service", "rules", "cdc_reconcile", "gen_bronze", "features_check", "decisions_check", "bronze_replay",
+    "gen_decisions_bronze",
+    "bronze_decisions_reconcile",]
 
 [tool.mypy]
 python_version = "3.12"
