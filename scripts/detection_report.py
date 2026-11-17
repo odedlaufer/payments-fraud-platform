@@ -23,10 +23,13 @@ ATTACK_GAP_MS = 3 * 3_600_000  # transactions of one attack: same card, under 3 
 DAY_MS = 86_400_000
 
 
-def attacks(ids: list[int], decisions: dict[int, dict[str, Any]]) -> list[list[int]]:
+def attacks(
+    ids: list[int], decisions: dict[int, dict[str, Any]], key: str = "card_id"
+) -> list[list[int]]:
+    """Transactions of one attack: same card (or merchant, for a bust-out), under 3 h apart."""
     by_card: dict[int, list[int]] = defaultdict(list)
     for i in ids:
-        by_card[decisions[i]["card_id"]].append(i)
+        by_card[decisions[i][key]].append(i)
     groups: list[list[int]] = []
     for seq in by_card.values():
         seq.sort(key=lambda i: decisions[i]["event_ms"])
@@ -99,7 +102,9 @@ def main() -> int:
           f"{'attacks':>9}{'caught':>8}  rules")  # fmt: skip
     caught_by: dict[str, Counter[str]] = defaultdict(Counter)
     for pattern, ids in sorted(by_pattern.items()):
-        groups = attacks(ids, decided)
+        groups = attacks(
+            ids, decided, "merchant_id" if pattern == "merchant_bust_out" else "card_id"
+        )
         caught = sum(any(flagged(i) for i in g) for g in groups)
         n_flagged = sum(flagged(i) for i in ids)
         declined = sum(decided[i]["decision"] == "decline" for i in ids)

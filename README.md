@@ -6,7 +6,7 @@ Local, self-hosted platform built entirely on free tools: a simulated payments a
 
 ## Requirements
 
-- Docker Desktop with 8 GB memory allocated (the default on a 16 GB machine)
+- Docker Desktop with 10 GB memory allocated (Settings > Resources); feasible on a 16 GB machine
 - [uv](https://docs.astral.sh/uv/) and GNU Make
 
 ## Quick start

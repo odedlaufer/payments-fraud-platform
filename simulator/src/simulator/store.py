@@ -48,6 +48,10 @@ class Store(Protocol):
     ) -> None: ...
     def delete_merchant(self, merchant_id: int, at: datetime) -> None: ...
     def insert_truth(self, transaction_id: int, pattern: str) -> None: ...
+    def schedule_chargeback(
+        self, transaction_id: int, reason_code: str, file_at: datetime
+    ) -> None: ...
+    def file_chargeback(self, transaction_id: int, reason_code: str, at: datetime) -> bool: ...
 
 
 CUSTOMER_COLUMNS = {"email", "phone", "address_line", "risk_tier"}
@@ -138,12 +142,19 @@ class PostgresStore:
                 "select transaction_id, event_ts from transactions where status = 'pending'"
             ).fetchall()
         ]
+        chargebacks = [
+            (int(str(r[0])), str(r[1]), r[2])
+            for r in c.execute(
+                "select transaction_id, reason_code, file_at from sim.pending_chargebacks"
+            ).fetchall()
+        ]
         return World(
             customers=customers,
             cards=cards,
             merchants=merchants,
             last_event_ts=last if isinstance(last, datetime) else None,
             pending_transactions=pending,  # type: ignore[arg-type]
+            pending_chargebacks=chargebacks,  # type: ignore[arg-type]
         )
 
     def _returning_id(self, sql: str, params: tuple[object, ...]) -> int:
@@ -242,9 +253,33 @@ class PostgresStore:
         """Ground truth for an injected fraud (FR-SIM3). sim.* is never captured by CDC."""
         self.ops["sim_truth", "insert"] += 1
         self.conn.execute(
-            "insert into sim.sim_truth (transaction_id, is_fraud, pattern) values (%s, true, %s)",
-            (transaction_id, pattern),
+            "insert into sim.sim_truth (transaction_id, is_fraud, pattern) values (%s, %s, %s)",
+            (transaction_id, pattern != "friendly_fraud", pattern),
         )
+
+    def schedule_chargeback(self, transaction_id: int, reason_code: str, file_at: datetime) -> None:
+        self.ops["pending_chargebacks", "insert"] += 1
+        self.conn.execute(
+            "insert into sim.pending_chargebacks (transaction_id, reason_code, file_at) "
+            "values (%s, %s, %s) on conflict do nothing",
+            (transaction_id, reason_code, file_at),
+        )
+
+    def file_chargeback(self, transaction_id: int, reason_code: str, at: datetime) -> bool:
+        """Files the chargeback unless the transaction was refunded meanwhile."""
+        self.conn.execute(
+            "delete from sim.pending_chargebacks where transaction_id = %s", (transaction_id,)
+        )
+        row = self.conn.execute(
+            "insert into chargebacks (transaction_id, reason_code, amount, event_ts) "
+            "select transaction_id, %s, amount, %s from transactions "
+            "where transaction_id = %s and status = 'approved' "
+            "on conflict (transaction_id) do nothing returning chargeback_id",
+            (reason_code, at, transaction_id),
+        ).fetchone()
+        if row is not None:
+            self.ops["chargebacks", "insert"] += 1
+        return row is not None
 
 
 class MemoryStore:
@@ -254,6 +289,8 @@ class MemoryStore:
         self.world = world
         self.ops: Counter[tuple[str, str]] = Counter()
         self.truth: dict[int, str] = {}
+        self.pending_chargebacks: dict[int, tuple[str, datetime]] = {}
+        self.chargebacks: dict[int, tuple[str, datetime]] = {}
         self.customer_updates: list[tuple[int, str, datetime]] = []
         self.transactions: dict[int, dict[str, object]] = {}
         self.sessions: dict[int, dict[str, object]] = {}
@@ -326,3 +363,17 @@ class MemoryStore:
     def insert_truth(self, transaction_id: int, pattern: str) -> None:
         self.ops["sim_truth", "insert"] += 1
         self.truth[transaction_id] = pattern
+
+    def schedule_chargeback(self, transaction_id: int, reason_code: str, file_at: datetime) -> None:
+        self.ops["pending_chargebacks", "insert"] += 1
+        self.pending_chargebacks[transaction_id] = (reason_code, file_at)
+
+    def file_chargeback(self, transaction_id: int, reason_code: str, at: datetime) -> bool:
+        self.pending_chargebacks.pop(transaction_id, None)
+        if self.transactions[transaction_id]["status"] != "approved":
+            return False
+        if transaction_id in self.chargebacks:
+            return False
+        self.ops["chargebacks", "insert"] += 1
+        self.chargebacks[transaction_id] = (reason_code, at)
+        return True
