@@ -96,6 +96,7 @@ class Engine:
             if not cust.devices:
                 cust.devices.append(self._device_id(cust.customer_id, 0))
             cust.home_city = nearest_city(cust.home_lat, cust.home_lon)
+        self._resume_locations(start)
         # Transactions left pending by a previous run are finalised promptly.
         for transaction_id, _ in world.pending_transactions:
             self._schedule(start, self._finalise(transaction_id))
@@ -210,6 +211,23 @@ class Engine:
     def _transit(self, a: int, b: int) -> timedelta:
         km = haversine_km(CITIES[a].lat, CITIES[a].lon, CITIES[b].lat, CITIES[b].lon)
         return timedelta(hours=km / self.rates.travel_kmh + self.rates.transit_buffer_h)
+
+    def _resume_locations(self, start: datetime) -> None:
+        """Puts customers where their last legitimate in-person purchase was. Trips live in
+        memory only: without this, everyone abroad at the end of the previous run would be
+        home at the start of this one, teleporting (impossible travel on a legitimate card).
+        Someone last seen away travels home now, taking the real transit time."""
+        for customer_id, (lat, lon, at) in self.world.last_seen.items():
+            cust = self.world.customers.get(customer_id)
+            if cust is None:
+                continue
+            city = nearest_city(lat, lon)
+            if city == cust.home_city:
+                continue
+            cust.trip_city = city
+            cust.trip_arrive = at
+            cust.trip_leave = max(at, start)
+            cust.trip_home = cust.trip_leave + self._transit(city, cust.home_city)
 
     def _start_trip(self, at: datetime) -> None:
         cust = self.world.customers[self.rng.choice(list(self.world.customers))]
