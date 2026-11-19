@@ -32,6 +32,24 @@ wait_for() {
 
 http_ok() { curl -fsS -o /dev/null --max-time 3 "$1"; }
 
+# Redis refuses writes when full (noeviction): warn at 80% of maxmemory, fail at 90%.
+redis_memory() {
+  local info used max pct
+  info=$(docker compose exec -T redis redis-cli info memory 2>/dev/null) || return 0
+  used=$(awk -F: '/^used_memory:/ {print $2}' <<< "$info" | tr -d '\r')
+  max=$(awk -F: '/^maxmemory:/ {print $2}' <<< "$info" | tr -d '\r')
+  [[ -z "$used" || -z "$max" || "$max" == 0 ]] && return 0
+  pct=$(( used * 100 / max ))
+  if (( pct >= 90 )); then
+    printf "  %-22s FAIL (%s%% of maxmemory)\n" "redis-memory" "$pct"
+    FAILED=1
+  elif (( pct >= 80 )); then
+    printf "  %-22s WARN (%s%% of maxmemory)\n" "redis-memory" "$pct"
+  else
+    printf "  %-22s OK (%s%% of maxmemory)\n" "redis-memory" "$pct"
+  fi
+}
+
 # Lakekeeper is bootstrapped and the warehouse exists.
 warehouse_exists() {
   curl -fsS --max-time 3 "http://localhost:${LAKEKEEPER_PORT}/management/v1/warehouse" \
@@ -117,6 +135,7 @@ if has_profile stream; then
   wait_for "job:features-card" flink_job_running features-card
   wait_for "job:bronze-decisions" flink_job_running bronze-decisions
   wait_for "redis" docker compose exec -T redis redis-cli ping
+  redis_memory
   wait_for "feature-sink" service_healthy feature-sink
   wait_for "decision-service" service_healthy decision-service
 fi
