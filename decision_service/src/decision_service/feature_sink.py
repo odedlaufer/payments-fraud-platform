@@ -1,25 +1,30 @@
 """feature-sink: features.card and customer CDC (Kafka) -> Redis online state (FR-F3, ADR-007).
 
-Reads the topic from the beginning on every start: the online store is derived data
-and Redis keeps no persistence, so a restart rebuilds it. The newer-only write makes
-replays and duplicate deliveries harmless.
+The online store is derived data and Redis keeps no persistence. The sink records in
+Redis which Redis instance (run_id) its state was built in:
 
-If Redis itself restarts (empty), the client would reconnect silently and only new
-records would be written. The sink watches Redis's run_id and exits when it changes;
-Docker restarts the sink, which rebuilds the whole store.
+- same instance (the sink restarted, Redis did not): resume from the committed offsets of
+  its consumer group; only records since the last commit are re-applied, and every write
+  is idempotent (newer-only card hashes, set/min/zadd customer context);
+- otherwise (Redis restarted empty, or first start): rebuild from the beginning of every
+  topic. A full replay grows with history, so it is reserved for this case.
+
+The sink writes /tmp/feature-sink.ready once every partition has caught up; the
+healthcheck needs it, so nothing waits on a cold store. If Redis restarts while the sink
+runs, the sink exits (run_id watch) and Docker restarts it into a rebuild.
 """
 
+import contextlib
 import os
 import signal
 import sys
 import time
-import uuid
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
 
 import redis
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import OFFSET_BEGINNING, Consumer, KafkaError, KafkaException, TopicPartition
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
@@ -30,6 +35,39 @@ from features.model import load
 
 TOPIC = "features.card"
 HEARTBEAT = Path("/tmp/feature-sink.alive")
+READY = Path("/tmp/feature-sink.ready")  # written once caught up; the healthcheck needs it
+GROUP = "feature-sink"
+BUILT_FOR = "sink:built_for"  # Redis key: run_id of the Redis instance this state was built in
+COMMIT_EVERY_S = 1.0
+READY_CHECK_EVERY_S = 2.0
+
+
+def start_mode(built_for: str | None, run_id: str) -> str:
+    """'resume' from committed offsets when Redis still holds the state this sink built
+    (same Redis run); 'rebuild' from the beginning when Redis lost it or never had it."""
+    return "resume" if built_for == run_id else "rebuild"
+
+
+def read_positions(
+    mode: str, positions: dict[tuple[str, int], int], committed: dict[tuple[str, int], int]
+) -> dict[tuple[str, int], int]:
+    """Where each partition stands. Kafka reports no position (negative) until a message is
+    consumed after assignment, so an idle partition resumed exactly at its end would never
+    look caught up: when resuming, it stands at its committed offset. Not when rebuilding,
+    where an old committed offset could look caught up before the replay has started."""
+    if mode != "resume":
+        return positions
+    return {tp: (pos if pos >= 0 else committed.get(tp, pos)) for tp, pos in positions.items()}
+
+
+def caught_up(
+    positions: dict[tuple[str, int], int], marks: dict[tuple[str, int], tuple[int, int]]
+) -> bool:
+    """Every assigned partition read to its end (or empty). positions: next offset to read
+    (negative before the first fetch); marks: (low, high) watermarks per partition."""
+    return all(high <= low or positions.get(tp, -1) >= high for tp, (low, high) in marks.items())
+
+
 # Write a per-transaction snapshot only for transactions committed this recently: the
 # decision service needs it within seconds, and replays of history must not flood Redis.
 FRESH_MS = 60_000
@@ -48,18 +86,32 @@ def main() -> int:
     defs = load()
     store = OnlineStore(client, defs)
     run_id = redis_run_id(client)
+    built_for = client.get(BUILT_FOR)
+    mode = start_mode(None if built_for is None else str(built_for), run_id)
+    READY.unlink(missing_ok=True)
     deserialize = AvroDeserializer(SchemaRegistryClient({"url": registry}))
     consumer = Consumer(
         {
             "bootstrap.servers": bootstrap,
-            # A fresh group each start: always rebuild from the beginning of the topic.
-            "group.id": f"feature-sink-{uuid.uuid4()}",
+            # One stable group: a restart resumes from the committed offsets while Redis keeps
+            # its state; only an empty Redis needs the full replay (rebuild).
+            "group.id": GROUP,
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,
             "topic.metadata.refresh.interval.ms": 5000,
         }
     )
-    consumer.subscribe([TOPIC, *CDC_TOPICS])
+
+    def on_assign(c: Consumer, partitions: list[TopicPartition]) -> None:
+        if mode == "rebuild":
+            for p in partitions:
+                p.offset = OFFSET_BEGINNING
+        c.assign(partitions)
+
+    consumer.subscribe([TOPIC, *CDC_TOPICS], on_assign=on_assign)
+    if mode == "rebuild":
+        # Recorded as the rebuild starts: a sink that crashes mid-rebuild resumes it.
+        client.set(BUILT_FOR, run_id)
 
     running = True
 
@@ -71,8 +123,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop)
 
     applied = skipped = 0
-    last_report = time.monotonic()
-    print(f"feature-sink: {TOPIC} -> {redis_url}", flush=True)
+    started = last_report = last_commit = last_ready_check = time.monotonic()
+    ready = False
+    print(f"feature-sink: {TOPIC} -> {redis_url} ({mode})", flush=True)
     while running:
         HEARTBEAT.touch()
         if redis_run_id(client) != run_id:
@@ -81,7 +134,8 @@ def main() -> int:
             return 1
         # Return quickly: consume() waits for the full timeout unless 500 messages arrive,
         # and every millisecond here is decision latency.
-        for msg in consumer.consume(500, timeout=0.05):
+        batch = consumer.consume(500, timeout=0.05)
+        for msg in batch:
             error = msg.error()
             if error is not None:
                 if error.code() != KafkaError.UNKNOWN_TOPIC_OR_PART:
@@ -105,9 +159,35 @@ def main() -> int:
                 applied += 1
             else:
                 skipped += 1
-        if time.monotonic() - last_report >= 30:
+        now = time.monotonic()
+        if batch and now - last_commit >= COMMIT_EVERY_S:
+            consumer.commit(asynchronous=True)
+            last_commit = now
+        if not ready and now - last_ready_check >= READY_CHECK_EVERY_S:
+            last_ready_check = now
+            assignment = consumer.assignment()
+            if assignment:
+                positions = {
+                    (p.topic, p.partition): p.offset for p in consumer.position(assignment)
+                }
+                committed = {
+                    (p.topic, p.partition): p.offset
+                    for p in consumer.committed(assignment, timeout=2)
+                }
+                positions = read_positions(mode, positions, committed)
+                marks = {
+                    (p.topic, p.partition): consumer.get_watermark_offsets(p, timeout=2)
+                    for p in assignment
+                }
+                if caught_up(positions, marks):
+                    READY.touch()
+                    ready = True
+                    print(f"feature-sink: {mode} caught up in {now - started:.0f}s", flush=True)
+        if now - last_report >= 30:
             print(f"feature-sink: applied={applied} skipped_older={skipped}", flush=True)
-            last_report = time.monotonic()
+            last_report = now
+    with contextlib.suppress(KafkaException):  # nothing consumed since the last commit
+        consumer.commit(asynchronous=False)
     consumer.close()
     return 0
 

@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: card_offline
+    description: >-
+      Every feature for every transaction, as of its event time, recomputed from the lake
+      (FR-PAR1). Generated from features/definitions.yml by `uv run features dbt`; equal to
+      the reference implementation (tests/features/test_dbt_offline.py).
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: txn_count_1m
+        description: Every window includes the transaction itself.
+        data_tests: [not_null]

@@ -32,6 +32,8 @@ class Side:
     ops: Counter[str] = field(default_factory=Counter)
     rows: int = 0  # bronze row count, including any duplicates
     end: dict[int, int] = field(default_factory=dict)  # topic: next offset per partition
+    start: dict[int, int] = field(default_factory=dict)  # topic: first retained offset
+    aged_out: int = 0  # bronze rows older than the topic's first retained offset
 
 
 @dataclass
@@ -66,6 +68,7 @@ def topic_side(records: Any) -> Side:
     side = Side()
     for partition, offset, _key, value in records:
         side.end[partition] = max(side.end.get(partition, 0), offset + 1)
+        side.start[partition] = min(side.start.get(partition, offset), offset)
         if value is None:  # tombstone: not stored in bronze
             continue
         side.offsets.add((partition, offset))
@@ -74,15 +77,26 @@ def topic_side(records: Any) -> Side:
     return side
 
 
-def bronze_side(cur: Any, table: str, end: dict[int, int]) -> Side:
-    """Bronze rows up to the topic snapshot's end offsets: a consistent point-in-time view,
-    so events Debezium emits after the snapshot cannot show up as `extra`."""
+def bronze_side(cur: Any, table: str, topic: Side) -> Side:
+    """Bronze rows between the topic's first retained offset and the snapshot's end offsets:
+    a consistent point-in-time view, so events Debezium emits after the snapshot cannot show
+    up as `extra`. Older rows are history Kafka no longer holds (retention): counted apart,
+    since bronze is the record (docs/incidents/2026-11-18-kafka-retention.md)."""
     side = Side()
-    if not end:
+    if not topic.end:
         return side
-    upto = " or ".join(f"(kafka_partition = {p} and kafka_offset < {o})" for p, o in end.items())
+    within = " or ".join(
+        f"(kafka_partition = {p} and kafka_offset >= {topic.start.get(p, 0)} "
+        f"and kafka_offset < {o})"
+        for p, o in topic.end.items()
+    )
+    older = " or ".join(
+        f"(kafka_partition = {p} and kafka_offset < {topic.start.get(p, 0)})" for p in topic.end
+    )
+    cur.execute(f"select count(*) from lake.bronze.cdc_{table} where {older}")
+    side.aged_out = int(cur.fetchone()[0])
     cur.execute(
-        f"select kafka_partition, kafka_offset, op from lake.bronze.cdc_{table} where {upto}"
+        f"select kafka_partition, kafka_offset, op from lake.bronze.cdc_{table} where {within}"
     )
     for partition, offset, op in cur.fetchall():
         side.rows += 1
@@ -115,9 +129,7 @@ def main() -> int:
     deadline = time.monotonic() + args.timeout
     print(f"waiting for bronze to catch up (commits every 60s, up to {args.timeout:.0f}s)...")
     while True:
-        reports = [
-            BronzeReport(t, expected[t], bronze_side(cur, t, expected[t].end)) for t in TABLES
-        ]
+        reports = [BronzeReport(t, expected[t], bronze_side(cur, t, expected[t])) for t in TABLES]
         caught_up = all(r.bronze.rows >= r.topic.rows for r in reports)
         if caught_up or time.monotonic() > deadline:
             break
@@ -133,6 +145,8 @@ def main() -> int:
         )
         if r.topic.ops != r.bronze.ops:
             print(f"    ops topic={dict(r.topic.ops)} bronze={dict(r.bronze.ops)}")
+        if r.bronze.aged_out:
+            print(f"    + {r.bronze.aged_out} older rows kept only in bronze (aged out of Kafka)")
     passed = all(r.ok for r in reports)
     events = sum(r.topic.rows for r in reports)
     verdict = "bronze complete, exactly once" if passed else "BRONZE MISMATCH"

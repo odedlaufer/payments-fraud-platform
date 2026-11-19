@@ -29,6 +29,7 @@ dev = [
     "psycopg[binary]==3.3.6",
     "confluent-kafka[avro,schemaregistry]==2.16.0",
     "trino==0.340.0",
+    "duckdb==1.4.1",
 ]
 # Transformations on Trino (PRD: dbt Core + dbt-trino).
 dbt = [
@@ -52,7 +53,9 @@ known-third-party = ["trino"]
 known-first-party = [
     "simulator", "features", "decision_service", "rules", "cdc_reconcile", "gen_bronze", "features_check", "decisions_check", "bronze_replay",
     "gen_decisions_bronze",
-    "bronze_decisions_reconcile",]
+    "bronze_decisions_reconcile",
+    "offline_features_check",
+    "cdc_snapshot",]
 
 [tool.mypy]
 python_version = "3.12"

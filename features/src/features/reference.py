@@ -147,7 +147,9 @@ def customer_features(
     for s in by_id.values():
         key = (s.customer_id, s.device_id)
         first_seen[key] = min(first_seen.get(key, s.event_ms), s.event_ms)
-    change_list = list(changes)
+    by_customer: dict[int, list[ProfileChange]] = defaultdict(list)
+    for c in changes:
+        by_customer[c.customer_id].append(c)
     result: dict[int, dict[str, object]] = {}
     for t in txns:
         values: dict[str, object] = {}
@@ -167,10 +169,8 @@ def customer_features(
                     None
                     if customer is None
                     else any(
-                        c.customer_id == customer
-                        and c.columns & watched
-                        and lo <= c.event_ms <= t.event_ms
-                        for c in change_list
+                        c.columns & watched and lo <= c.event_ms <= t.event_ms
+                        for c in by_customer[customer]
                     )
                 )
             else:

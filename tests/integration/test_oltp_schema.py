@@ -12,7 +12,7 @@ Conn = psycopg.Connection[tuple[object, ...]]
 
 ROOT = Path(__file__).resolve().parents[2]
 DOMAIN_TABLES = ["customers", "cards", "merchants", "sessions", "transactions", "chargebacks"]
-PUBLISHED_TABLES = sorted([*DOMAIN_TABLES, "cdc_heartbeat"])
+PUBLISHED_TABLES = sorted([*DOMAIN_TABLES, "cdc_heartbeat", "debezium_signal"])
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -36,7 +36,7 @@ def test_all_migrations_applied(oltp: Conn) -> None:
     assert [r[0] for r in rows] == files
 
 
-def test_publication_covers_exactly_domain_tables_and_heartbeat(oltp: Conn) -> None:
+def test_publication_covers_exactly_domain_tables_heartbeat_and_signal(oltp: Conn) -> None:
     rows = oltp.execute(
         "select schemaname, tablename from pg_publication_tables "
         "where pubname = 'payments_cdc' order by tablename"

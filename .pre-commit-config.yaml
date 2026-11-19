@@ -25,10 +25,10 @@ repos:
       # dbt macros, and SCD2 models that only call one (via dbt's adapter), have
       # nothing sqlfluff can render or lint on their own.
       - id: sqlfluff-lint
-        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/)
+        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/|dbt/models/features/)
       - id: sqlfluff-fix
         args: [--force]
-        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/)
+        exclude: ^(flink/|trino/ddl/|dbt/models/staging/stg_cdc__|dbt/macros/|dbt/models/scd2/|dbt/models/features/)
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:

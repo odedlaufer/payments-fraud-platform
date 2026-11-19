@@ -16,10 +16,12 @@ def test_no_literal_secrets() -> None:
 
 
 def test_tables_match_publication() -> None:
-    """Debezium captures exactly the tables the publication exposes."""
+    """Debezium captures exactly the tables the publication exposes: those it was created
+    with, plus any a later migration adds."""
     match = re.search(r"create publication payments_cdc for table(.*?);", MIGRATIONS, re.S)
     assert match
-    published = sorted(t.strip() for t in match.group(1).split(",") if t.strip())
+    added = re.findall(r"alter publication payments_cdc add table ([\w.]+);", MIGRATIONS)
+    published = sorted([*(t.strip() for t in match.group(1).split(",") if t.strip()), *added])
     assert sorted(CONFIG["table.include.list"].split(",")) == published
 
 
