@@ -38,7 +38,9 @@ META = ("transaction_id", "event_ms", "definitions_version", "computed_at", "wri
 # Per-transaction snapshots live just long enough for the decision service to read them.
 TRANSACTION_TTL_S = 120
 DECIDED_TTL_S = 600
-SESSION_TTL_S = 3 * 86_400  # a session is only looked up by transactions made during it
+# A session is looked up only by transactions committed seconds after it (real time between
+# its CDC event and their decisions), so an hour is ample, and keeps sessions bounded.
+SESSION_TTL_S = 3_600
 
 # KEYS[1] = first:{feature}:{customer}; ARGV[1] = device; ARGV[2] = event_ms. Keeps the minimum.
 EARLIEST = """

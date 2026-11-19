@@ -122,11 +122,39 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
+    try:
+        return _run(
+            consumer, client, store, defs, deserialize, mode, run_id, redis_url, lambda: running
+        )
+    except redis.exceptions.OutOfMemoryError as exc:
+        # noeviction: Redis refuses writes when full. Exit loudly; offsets are committed only
+        # after records are applied, so the restart resumes without losing anything.
+        print(
+            f"feature-sink: Redis is full (maxmemory), cannot write: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        READY.unlink(missing_ok=True)
+        consumer.close()
+        return 1
+
+
+def _run(
+    consumer: Consumer,
+    client: redis.Redis,
+    store: OnlineStore,
+    defs: Any,
+    deserialize: Any,
+    mode: str,
+    run_id: str,
+    redis_url: str,
+    is_running: Any,
+) -> int:
     applied = skipped = 0
     started = last_report = last_commit = last_ready_check = time.monotonic()
     ready = False
     print(f"feature-sink: {TOPIC} -> {redis_url} ({mode})", flush=True)
-    while running:
+    while is_running():
         HEARTBEAT.touch()
         if redis_run_id(client) != run_id:
             print("feature-sink: Redis restarted (empty); exiting to rebuild", flush=True)

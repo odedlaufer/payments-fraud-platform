@@ -505,9 +505,11 @@ services:
     <<: *restart
     image: redis:8.10.3
     profiles: [stream]
+    # noeviction: a full store must refuse writes (and say so), never silently drop state.
+    # 96 MB: a fast-mode burst holds ~20 MB of 120 s transaction snapshots alone.
     command:
       ["redis-server", "--save", "", "--appendonly", "no",
-       "--maxmemory", "32mb", "--maxmemory-policy", "noeviction"]
+       "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
@@ -518,7 +520,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64m
+          memory: 128m
 
   # features.card -> Redis card hashes, newer records only.
   feature-sink:
