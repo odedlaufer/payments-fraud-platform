@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src features/src decision_service/src rules/src scripts
+	uv run mypy tests simulator/src features/src decision_service/src rules/src backtester/src scripts
 
 test: ## Run unit tests
 	uv run pytest
@@ -190,3 +190,6 @@ publish-training-set: ## Build, gate and publish a training set (CUTOFF="2026-03
 
 verify-training-sets: ## Every published training set still reproduces through Iceberg time travel
 	uv run python scripts/publish_training_set.py --verify
+
+backtest: ## Replay a rules version over the latest published training set (RULES=rules/rules_v2.yml)
+	uv run backtest --rules $(RULES) $(ARGS)
