@@ -76,6 +76,8 @@ REQUIRED_FILES = [
     "scripts/cdc_snapshot.py",
     "scripts/parity_report.py",
     "scripts/publish_training_set.py",
+    "scripts/promote_rules.py",
+    "rules/live.env",
     "rules/rules_v1.yml",
     "rules/rules_v2.yml",
     "decision_service/Dockerfile",

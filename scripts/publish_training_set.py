@@ -44,29 +44,30 @@ def fetch(cur: Any, sql: str) -> list[Any]:
     return list(cur.fetchall())
 
 
+def columns(cur: Any, relation: str) -> list[str]:
+    """Columns of a relation; with FOR VERSION AS OF, the schema as of that snapshot."""
+    cur.execute(f"select * from {relation} limit 0")
+    cur.fetchall()
+    return [d[0] for d in cur.description]
+
+
 def fingerprint(
-    cur: Any, table: str, cutoff: str, version: int | None = None
+    cur: Any,
+    table: str,
+    cutoff: str,
+    version: int | None = None,
+    order: list[str] | None = None,
 ) -> tuple[int, int, str]:
-    """(rows, positives, checksum over every column) for one cutoff of a table."""
-    schema, name = table.split(".")[1:]
-    cols = [
-        r[0]
-        for r in fetch(
-            cur,
-            (
-                "select column_name from lake.information_schema.columns "
-                f"where table_schema = '{schema}' and table_name = '{name}' "
-                "order by ordinal_position"
-            ),
-        )
-    ]
-    at = f" for version as of {version}" if version is not None else ""
+    """(rows, positives, checksum over every column) for one cutoff of a table. At a snapshot,
+    over the columns that existed then (later columns would not exist in it). The checksum
+    hashes a row of the columns, so order matters: `order` gives another table's order (an
+    evolved table appends new columns at the end, a fresh one has them where they belong)."""
+    relation = f"{table} for version as of {version}" if version is not None else table
+    cols = order if order is not None else columns(cur, relation)
     (rows, positives, digest) = fetch(
         cur,
-        (
-            f"select count(*), coalesce(sum(label), 0), to_hex(checksum(row({', '.join(cols)}))) "
-            f"from {table}{at} where cutoff = timestamp '{cutoff}'"
-        ),
+        f"select count(*), coalesce(sum(label), 0), to_hex(checksum(row({', '.join(cols)}))) "
+        f"from {relation} where cutoff = timestamp '{cutoff}'",
     )[0]
     return int(rows), int(positives), str(digest)
 
@@ -95,60 +96,96 @@ def build(cutoff: str) -> bool:
     return run.returncode == 0
 
 
-def history_rate(cur: Any, cutoff: str) -> float | None:
+def history_rate(cur: Any, cutoff: str, set_version: int) -> float | None:
+    """Average fraud rate of earlier sets built by the same training-set definition."""
     if not fetch(
         cur,
         "select 1 from lake.information_schema.tables "
         "where table_schema = 'ops' and table_name = 'training_sets'",
     ):
         return None
+    ensure_registry(cur)
     rows = fetch(
-        cur, f"select avg(fraud_rate) from {REGISTRY} where cutoff != timestamp '{cutoff}'"
+        cur,
+        f"select avg(fraud_rate) from {REGISTRY} where cutoff != timestamp '{cutoff}' "
+        f"and coalesce(training_set_version, 1) = {set_version}",
     )
     return None if rows[0][0] is None else float(rows[0][0])
+
+
+def current_snapshot(cur: Any) -> int | None:
+    rows = fetch(
+        cur,
+        'select snapshot_id from lake.ml."training_set$snapshots" '
+        "order by committed_at desc limit 1",
+    )
+    return int(rows[0][0]) if rows else None
+
+
+def rollback(cur: Any, snapshot: int | None) -> None:
+    """Undoes a publish that failed verification: the table as it was before."""
+    if snapshot is None:
+        fetch(cur, f"delete from {PUBLISHED} where true")
+    else:
+        fetch(cur, f"alter table {PUBLISHED} execute rollback_to_snapshot({snapshot})")
 
 
 def publish(cur: Any, cutoff: str) -> int:
     fetch(cur, "create schema if not exists lake.ml")
     fetch(
         cur,
-        (
-            f"create table if not exists {PUBLISHED} with (partitioning = ARRAY['day(cutoff)']) "
-            f"as select * from {STAGING} with no data"
-        ),
+        f"create table if not exists {PUBLISHED} with (partitioning = ARRAY['day(cutoff)']) "
+        f"as select * from {STAGING} with no data",
     )
-    fetch(cur, f"delete from {PUBLISHED} where cutoff = timestamp '{cutoff}'")
-    fetch(cur, f"insert into {PUBLISHED} select * from {STAGING}")
-    return int(
+    staged, published = columns(cur, STAGING), columns(cur, PUBLISHED)
+    types = dict(
         fetch(
             cur,
             (
-                'select snapshot_id from lake.ml."training_set$snapshots" '
-                "order by committed_at desc limit 1"
+                "select column_name, data_type from lake.information_schema.columns "
+                "where table_schema = 'marts' and table_name = 'training_set'"
             ),
+        )
+    )
+    for col in staged:
+        if col not in published:  # the definition gained a column: evolve the published table
+            fetch(cur, f"alter table {PUBLISHED} add column {col} {types[col]}")
+    fetch(cur, f"delete from {PUBLISHED} where cutoff = timestamp '{cutoff}'")
+    names = ", ".join(staged)
+    fetch(cur, f"insert into {PUBLISHED} ({names}) select {names} from {STAGING}")
+    return int(
+        fetch(
+            cur,
+            'select snapshot_id from lake.ml."training_set$snapshots" '
+            "order by committed_at desc limit 1",
         )[0][0]
     )
 
 
-def record(cur: Any, cutoff: str, snapshot: int, rows: int, positives: int, digest: str) -> None:
+def ensure_registry(cur: Any) -> None:
     fetch(cur, "create schema if not exists lake.ops")
     fetch(
         cur,
-        (
-            f"create table if not exists {REGISTRY} (cutoff timestamp(6) with time zone, "
-            "published_at timestamp(6) with time zone, snapshot_id bigint, rows bigint, "
-            "positives bigint, fraud_rate double, fingerprint varchar, definitions_version integer)"
-        ),
+        f"create table if not exists {REGISTRY} (cutoff timestamp(6) with time zone, "
+        "published_at timestamp(6) with time zone, snapshot_id bigint, rows bigint, "
+        "positives bigint, fraud_rate double, fingerprint varchar, definitions_version integer)",
     )
-    version = fetch(cur, f"select max(definitions_version) from {STAGING}")[0][0]
+    fetch(cur, f"alter table {REGISTRY} add column if not exists training_set_version integer")
+
+
+def record(cur: Any, cutoff: str, snapshot: int, rows: int, positives: int, digest: str) -> None:
+    ensure_registry(cur)
+    definitions, set_version = fetch(
+        cur, f"select max(definitions_version), max(training_set_version) from {STAGING}"
+    )[0]
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
     rate = positives / rows if rows else 0.0
     fetch(
         cur,
-        (
-            f"insert into {REGISTRY} values (timestamp '{cutoff}', timestamp '{now}', {snapshot}, "
-            f"{rows}, {positives}, {rate}, '{digest}', {version})"
-        ),
+        f"insert into {REGISTRY} (cutoff, published_at, snapshot_id, rows, positives, fraud_rate, "
+        "fingerprint, definitions_version, training_set_version) values "
+        f"(timestamp '{cutoff}', timestamp '{now}', {snapshot}, {rows}, {positives}, {rate}, "
+        f"'{digest}', {definitions}, {set_version})",
     )
 
 
@@ -200,9 +237,10 @@ def main() -> int:
     print(f"  staged: {rows} transactions, {positives} positive ({rate:.3%})")
 
     print("== 2. DQ-13: fraud rate against earlier sets")
-    previous = history_rate(cur, cutoff)
+    set_version = int(fetch(cur, f"select max(training_set_version) from {STAGING}")[0][0])
+    previous = history_rate(cur, cutoff, set_version)
     if previous is None:
-        print("  no earlier sets: nothing to compare (first publication)")
+        print(f"  no earlier sets of training-set version {set_version}: nothing to compare")
     elif not (1 - DQ13_BAND) * previous <= rate <= (1 + DQ13_BAND) * previous:
         print(
             f"REFUSED: fraud rate {rate:.3%} is outside +-50% of the earlier average {previous:.3%}"
@@ -212,11 +250,22 @@ def main() -> int:
         print(f"  {rate:.3%} within +-50% of the earlier average {previous:.3%}")
 
     print("== 3. publish and record the Iceberg snapshot")
+    fetch(cur, "create schema if not exists lake.ml")
+    exists = fetch(
+        cur,
+        "select 1 from lake.information_schema.tables "
+        "where table_schema = 'ml' and table_name = 'training_set'",
+    )
+    before = current_snapshot(cur) if exists else None
     snapshot = publish(cur, cutoff)
+    order = columns(cur, PUBLISHED)
     published = fingerprint(cur, PUBLISHED, cutoff)
-    if published != (rows, positives, digest):
-        print(f"FAILED: published set differs from staging: {published}")
+    expected = fingerprint(cur, STAGING, cutoff, order=order)
+    if published != expected:
+        rollback(cur, before)
+        print(f"FAILED: published {published} differs from staging {expected}; rolled back")
         return 1
+    rows, positives, digest = published
     record(cur, cutoff, snapshot, rows, positives, digest)
     print(f"  {PUBLISHED}: cutoff {cutoff}, snapshot {snapshot}, fingerprint {digest[:16]}...")
 

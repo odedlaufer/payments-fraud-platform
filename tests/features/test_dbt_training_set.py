@@ -34,6 +34,8 @@ TXNS: dict[int, tuple[datetime, datetime | None, datetime]] = {
     2: (ts(1, 20), ts(4, 5), ts(1, 1)),  # B: mature, chargeback only after the cutoff
     3: (ts(3, 1), None, ts(1, 1)),  # C: not mature at the cutoff
     4: (ts(1, 25), None, ts(1, 1)),  # D: mature, never disputed
+    5: (ts(1, 2), None, ts(1, 1)),  # E: before label coverage (first label known: A, Jan 10)
+    6: (ts(1, 5), ts(4, 2), ts(1, 1)),  # F: labelled, but only after the cutoff: no coverage yet
 }
 
 
@@ -167,3 +169,25 @@ def test_a_cutoff_in_the_future_is_caught(con: duckdb.DuckDBPyConnection) -> Non
         assert run(con)["assert_training_set_has_no_leakage"] > 0
     finally:
         CUTOFF = saved
+
+
+def test_rows_before_label_coverage_are_excluded(con: duckdb.DuckDBPyConnection) -> None:
+    run(con)
+    ids = [
+        r[0] for r in con.execute("select transaction_id from training_set order by 1").fetchall()
+    ]
+    assert 5 not in ids and 6 not in ids  # coverage starts Jan 10 (A), known at the cutoff
+    (coverage,) = con.execute("select distinct label_coverage_from from training_set").fetchone()  # type: ignore[misc]
+    assert coverage == ts(1, 10)
+
+
+def test_coverage_from_labels_known_only_later_is_caught(con: duckdb.DuckDBPyConnection) -> None:
+    """Choosing coverage with every label known today (F's April chargeback) lets the future
+    decide the window: F enters the set."""
+    sql = leak("and l.label_known_at <= k.cutoff\n", "\n")
+    assert run(con, sql)["assert_training_set_has_no_leakage"] > 0
+
+
+def test_no_coverage_filter_is_caught(con: duckdb.DuckDBPyConnection) -> None:
+    sql = leak("        and l.event_ts >= c.label_coverage_from\n", "")
+    assert run(con, sql)["assert_training_set_has_no_leakage"] > 0

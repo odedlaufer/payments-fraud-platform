@@ -563,11 +563,12 @@ services:
       dockerfile: decision_service/Dockerfile
     profiles: [stream]
     command: ["decision-service"]
+    # The live rules version (RULES_FILE): committed, changed only by make promote-rules.
+    env_file: [rules/live.env]
     environment:
       KAFKA_BOOTSTRAP: redpanda:9092
       SCHEMA_REGISTRY_URL: http://redpanda:8081
       REDIS_URL: redis://redis:6379/0
-      RULES_FILE: /app/rules/rules_v1.yml
       FEATURE_WAIT_MS: "3000"
     healthcheck:
       test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/decision-service.alive) )) -lt 30"]
