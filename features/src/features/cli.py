@@ -5,12 +5,14 @@ import sys
 from pathlib import Path
 
 from features.catalogue import render
+from features.dbt import OfflineModel
 from features.flink import CardJob
 from features.model import DEFAULT_PATH, DefinitionError, load
 
 ROOT = DEFAULT_PATH.parents[1]
 CATALOGUE = ROOT / "docs/feature-catalogue.md"
 CARD_JOB = ROOT / "flink/sql/features/card_features.sql"
+OFFLINE_MODEL = ROOT / "dbt/models/features/card_offline.sql"
 KAFKA = "redpanda:9092"
 REGISTRY = "http://redpanda:8081"
 
@@ -23,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     cat.add_argument("--check", action="store_true", help="fail if the catalogue is stale")
     flink = sub.add_parser("flink", help="write flink/sql/features/card_features.sql")
     flink.add_argument("--check", action="store_true", help="fail if the job is stale")
+    dbt = sub.add_parser("dbt", help="write dbt/models/features/card_offline.sql")
+    dbt.add_argument("--check", action="store_true", help="fail if the model is stale")
     args = parser.parse_args(argv)
     try:
         defs = load()
@@ -34,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "catalogue":
         text, path = render(defs), Path(CATALOGUE)
+    elif args.command == "dbt":
+        text, path = OfflineModel(defs).sql(), Path(OFFLINE_MODEL)
     else:
         text, path = CardJob(defs).job(KAFKA, REGISTRY), Path(CARD_JOB)
     name = path.relative_to(ROOT)

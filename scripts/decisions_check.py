@@ -17,10 +17,11 @@ from decimal import Decimal
 from typing import Any, cast
 
 import psycopg
+import trino
 from confluent_kafka import TopicPartition
 from confluent_kafka.serialization import MessageField, SerializationContext
 
-from cdc_reconcile import kafka_clients, load_env, read_records
+from cdc_reconcile import kafka_clients, load_env
 from features.model import load
 from features.reference import CustomerTxn, ProfileChange, Session, customer_features
 from features.timeparse import dt_to_ms, iso_to_ms
@@ -55,17 +56,25 @@ def read_decisions(env: dict[str, str]) -> list[dict[str, Any]]:
 
 
 def profile_changes(env: dict[str, str]) -> list[ProfileChange]:
-    """Every customer update in the CDC log, with the columns whose value changed."""
-    consumer, deserialize = kafka_clients(env)
+    """Every customer update with the watched columns whose value changed, from bronze: the
+    complete CDC history (Kafka retention may have aged early events out, see
+    docs/incidents/2026-11-18-kafka-retention.md)."""
+    watched = sorted(
+        {c for f in load().for_entity("customer") if f.kind == "changed_within" for c in f.columns}
+    )
+    cols = ", ".join(f"before.{c}, after.{c}" for c in watched)
+    cur = trino.dbapi.connect(  # type: ignore[no-untyped-call]
+        host="127.0.0.1", port=int(env.get("TRINO_PORT", "8088")), user="decisions-check"
+    ).cursor()
+    cur.execute(
+        f"select after.customer_id, after.event_ts, {cols} from lake.bronze.cdc_customers "
+        "where op = 'u' and before is not null and after is not null"
+    )
     out = []
-    for _, _, _, event in read_records(consumer, deserialize, "pg.public.customers", "customer_id"):
-        if event and event.get("op") == "u" and event.get("before") and event.get("after"):
-            before, after = event["before"], event["after"]
-            changed = frozenset(c for c in after if c != "event_ts" and before.get(c) != after[c])
-            out.append(
-                ProfileChange(int(after["customer_id"]), changed, iso_to_ms(after["event_ts"]))
-            )
-    consumer.close()
+    for row in cur.fetchall():
+        pairs = row[2:]
+        changed = frozenset(c for k, c in enumerate(watched) if pairs[2 * k] != pairs[2 * k + 1])
+        out.append(ProfileChange(int(row[0]), changed, iso_to_ms(str(row[1]))))
     return out
 
 
