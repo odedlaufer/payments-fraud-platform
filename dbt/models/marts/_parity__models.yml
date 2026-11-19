@@ -28,3 +28,17 @@ models:
           - accepted_values:
               arguments:
                 values: [definition_drift, late_event, unexplained]
+
+  - name: training_set
+    description: >-
+      Point-in-time training set for a cutoff (FR-PIT2): mature transactions, features and
+      dimensions as of the event, labels as known at the cutoff. Never the current status.
+    columns:
+      - name: transaction_id
+        data_tests: [unique, not_null]
+      - name: label
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+                quote: false

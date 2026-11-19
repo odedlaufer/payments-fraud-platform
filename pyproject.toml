@@ -56,7 +56,8 @@ known-first-party = [
     "bronze_decisions_reconcile",
     "offline_features_check",
     "cdc_snapshot",
-    "parity_report",]
+    "parity_report",
+    "publish_training_set",]
 
 [tool.mypy]
 python_version = "3.12"
