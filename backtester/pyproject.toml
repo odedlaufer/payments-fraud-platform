@@ -1,0 +1,27 @@
+[project]
+name = "payments-backtester"
+version = "0.1.0"
+description = "Rule backtester: any rules version over a published training set (PRD 5.8)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "payments-features",
+    "payments-rules",
+    "payments-decision",
+    "duckdb==1.5.6",
+    "trino==0.340.0",
+]
+
+[project.scripts]
+backtest = "backtester.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "backtester"
+
+[tool.uv.sources]
+payments-features = { workspace = true }
+payments-rules = { workspace = true }
+payments-decision = { workspace = true }
