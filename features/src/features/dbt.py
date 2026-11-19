@@ -293,3 +293,103 @@ class OfflineModel:
             f"    {cols},\n    {self.defs.version} as definitions_version\n"
             "from txn as t\n" + "\n".join(self.joins()) + "\n"
         )
+
+
+# ------------------------------------------------------------------ parity (FR-PAR2)
+
+PARITY_TOLERANCE = "1e-6"  # sums and ratios (FR-PAR2); counts and booleans are exact
+
+
+@dataclass(frozen=True)
+class ParityModel:
+    """One row per decision per feature: the logged value next to the offline one.
+
+    A decision logged an entity's features when any of them is non-null: decisions made
+    before a feature group existed, and stale_features reviews, are kept but not compared.
+    """
+
+    defs: Definitions
+
+    def entities(self) -> list[str]:
+        return list(dict.fromkeys(f.entity for f in self.defs.features))
+
+    def match(self, f: Feature) -> tuple[str, str]:
+        """(matches, abs_diff) for one feature, by dtype. Both null matches; one null does not."""
+        logged, offline = f"j.f.{f.name}", f"j.o_{f.name}"
+        both_null = f"({logged} is null and {offline} is null)"
+        if f.dtype in ("bigint", "boolean"):
+            diff = (
+                f"cast(abs({logged} - {offline}) as double)"
+                if f.dtype == "bigint"
+                else f"case when {logged} is not distinct from {offline} then 0e0 else 1e0 end"
+            )
+            return f"{logged} is not distinct from {offline}", diff
+        if f.dtype.startswith("decimal"):
+            value = f"cast({logged} as {f.dtype})"  # logged as an exact decimal string
+            diff = f"cast(abs({value} - {offline}) as double)"
+            return f"coalesce({diff} <= {PARITY_TOLERANCE}, {both_null})", diff
+        diff = f"abs({logged} - {offline})"
+        bound = f"{PARITY_TOLERANCE} * greatest(1e0, abs({offline}))"
+        return f"coalesce({diff} <= {bound}, {both_null})", diff
+
+    def joined_sql(self) -> str:
+        """Each decision's logged snapshot next to its offline features: computed once and
+        materialized, so the per-feature comparison scans a table instead of re-running the
+        join once per feature (twelve concurrent joins once exhausted Trino's heap)."""
+        logged_flags = []
+        for entity in self.entities():
+            names = [f.name for f in self.defs.for_entity(entity)]
+            any_set = " or ".join(f"d.features.{n} is not null" for n in names)
+            logged_flags.append(f"    ({any_set}) as {entity}_logged")
+        offline_cols = ",\n".join(f"    o.{f.name} as o_{f.name}" for f in self.defs.features)
+        return (
+            HEADER
+            + "\n-- One row per decision (the latest per transaction), with its logged snapshot\n"
+            "-- and the offline features recomputed from the lake (input to parity_comparisons).\n"
+            "with decisions as (\n"
+            "    select\n"
+            "        transaction_id, decision, reason, definitions_version, features, decided_at,\n"
+            "        row_number() over (partition by transaction_id order by kafka_offset desc)"
+            " as rn\n"
+            "    from {{ source('decision_log', 'decisions') }}\n"
+            ")\n\n"
+            "select\n"
+            "    d.transaction_id, d.decision, d.reason, d.decided_at,\n"
+            "    d.definitions_version as logged_version,\n"
+            "    d.features as f,\n"
+            "    o.card_id, o.merchant_id, o.event_ms,\n"
+            "    cast(t.event_ts as date) as event_day,\n"
+            + offline_cols
+            + ",\n"
+            + ",\n".join(logged_flags)
+            + "\nfrom decisions as d\n"
+            "inner join {{ ref('card_offline') }} as o on d.transaction_id = o.transaction_id\n"
+            "inner join {{ ref('transactions_current') }} as t"
+            " on d.transaction_id = t.transaction_id\n"
+            "where d.rn = 1\n"
+        )
+
+    def sql(self) -> str:
+        rows = []
+        for f in self.defs.features:
+            matches, diff = self.match(f)
+            rows.append(
+                "select\n"
+                "    j.transaction_id, j.card_id, j.merchant_id, j.event_ms, j.event_day,\n"
+                "    j.decision, j.reason, j.logged_version, j.decided_at,\n"
+                f"    '{f.name}' as feature, '{f.entity}' as entity,\n"
+                f"    cast(j.f.{f.name} as varchar) as logged_value,\n"
+                f"    cast(j.o_{f.name} as varchar) as offline_value,\n"
+                f"    j.reason != 'stale_features' and j.{f.entity}_logged as compared,\n"
+                f"    {matches} as matches,\n"
+                f"    {diff} as abs_diff\n"
+                "from {{ ref('parity_joined') }} as j"
+            )
+        return (
+            HEADER
+            + "\n-- Parity (FR-PAR2): each feature a decision logged, next to the offline value\n"
+            "-- recomputed from the lake (features.card_offline). Counts and booleans must be\n"
+            f"-- equal; sums and ratios within {PARITY_TOLERANCE} (relative for doubles).\n"
+            + "\n\nunion all\n\n".join(rows)
+            + "\n"
+        )

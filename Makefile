@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -181,3 +181,6 @@ offline-features-check: ## Lake features.card_offline vs the reference from Post
 
 cdc-snapshot: ## Re-emit current rows of CDC tables as snapshot events (TABLES="cards sessions" or all)
 	uv run python scripts/cdc_snapshot.py $(TABLES)
+
+parity-report: ## Online/offline feature parity from the lake: the headline (FR-PAR2/3)
+	uv run python scripts/parity_report.py

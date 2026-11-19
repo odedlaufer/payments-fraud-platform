@@ -74,6 +74,7 @@ REQUIRED_FILES = [
     "scripts/bronze_decisions_reconcile.py",
     "scripts/offline_features_check.py",
     "scripts/cdc_snapshot.py",
+    "scripts/parity_report.py",
     "rules/rules_v1.yml",
     "rules/rules_v2.yml",
     "decision_service/Dockerfile",

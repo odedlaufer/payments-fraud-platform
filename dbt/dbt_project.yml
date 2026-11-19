@@ -40,3 +40,7 @@ models:
     features:
       +schema: features
       +materialized: table
+    # Operational records (FR-PAR3 mismatches); ops.dq_results is written by scripts.
+    ops:
+      +schema: ops
+      +materialized: table
