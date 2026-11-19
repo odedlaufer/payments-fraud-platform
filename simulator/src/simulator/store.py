@@ -148,6 +148,17 @@ class PostgresStore:
                 "select transaction_id, reason_code, file_at from sim.pending_chargebacks"
             ).fetchall()
         ]
+        last_seen = {
+            int(str(r[0])): (float(str(r[1])), float(str(r[2])), r[3])
+            for r in c.execute(
+                "select distinct on (cd.customer_id) cd.customer_id, t.lat, t.lon, t.event_ts "
+                "from transactions t join cards cd on cd.card_id = t.card_id "
+                "left join sim.sim_truth s on s.transaction_id = t.transaction_id "
+                "where t.channel = 'card_present' and t.lat is not null "
+                "and (s.transaction_id is null or not s.is_fraud) "
+                "order by cd.customer_id, t.event_ts desc, t.transaction_id desc"
+            ).fetchall()
+        }
         return World(
             customers=customers,
             cards=cards,
@@ -155,6 +166,7 @@ class PostgresStore:
             last_event_ts=last if isinstance(last, datetime) else None,
             pending_transactions=pending,  # type: ignore[arg-type]
             pending_chargebacks=chargebacks,  # type: ignore[arg-type]
+            last_seen=last_seen,  # type: ignore[arg-type]
         )
 
     def _returning_id(self, sql: str, params: tuple[object, ...]) -> int:

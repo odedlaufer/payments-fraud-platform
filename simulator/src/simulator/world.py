@@ -51,6 +51,9 @@ class World:
     pending_transactions: list[tuple[int, datetime]] = field(default_factory=list)
     # (transaction_id, reason_code, file_at) for chargebacks still to be filed (FR-SIM4)
     pending_chargebacks: list[tuple[int, str, datetime]] = field(default_factory=list)
+    # customer_id -> (lat, lon, at) of the last legitimate card-present purchase: where each
+    # customer really is when a run starts (trips live in memory only)
+    last_seen: dict[int, tuple[float, float, datetime]] = field(default_factory=dict)
 
     def merchants_in(self, country_code: str) -> list[MerchantState]:
         return [m for m in self.merchants.values() if m.country_code == country_code]

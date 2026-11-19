@@ -171,3 +171,42 @@ def test_friendly_fraud_is_labelled_legitimate(
         "select is_fraud, pattern from sim.sim_truth where transaction_id = %s", (txn_id,)
     ).fetchone()
     assert row == (False, "friendly_fraud")
+
+
+def test_last_seen_is_the_last_legitimate_in_person_purchase(
+    oltp: psycopg.Connection[tuple[object, ...]],
+) -> None:
+    """Where a new run puts each customer: their last card-present purchase, but never a
+    clone's (an attack's location is the fraudster's)."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from simulator.store import NewTransaction
+
+    store = PostgresStore(oltp)
+    world = store.load_world()
+    card = next(iter(world.cards.values()))
+    merchant = next(iter(world.merchants.values()))
+    real_at = datetime(2030, 1, 1, tzinfo=UTC)  # later than anything else in the database
+    clone_at = datetime(2030, 1, 1, 1, tzinfo=UTC)
+
+    def card_present(lat: float, lon: float, at: datetime) -> int:
+        return store.insert_transaction(
+            NewTransaction(
+                card.card_id,
+                merchant.merchant_id,
+                None,
+                Decimal("10.00"),
+                "USD",
+                "card_present",
+                lat,
+                lon,
+                at,
+            )  # fmt: skip
+        )
+
+    card_present(32.79, 34.99, real_at)  # Haifa: the customer
+    clone = card_present(40.71, -74.01, clone_at)  # New York, an hour later: a clone
+    store.insert_truth(clone, "impossible_travel")
+    lat, lon, at = store.load_world().last_seen[card.customer_id]
+    assert (round(lat, 2), round(lon, 2), at) == (32.79, 34.99, real_at)
