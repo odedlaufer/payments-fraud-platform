@@ -58,7 +58,8 @@ known-first-party = [
     "offline_features_check",
     "cdc_snapshot",
     "parity_report",
-    "publish_training_set",]
+    "publish_training_set",
+    "promote_rules",]
 
 [tool.mypy]
 python_version = "3.12"

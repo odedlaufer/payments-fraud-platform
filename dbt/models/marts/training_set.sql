@@ -5,6 +5,9 @@
 --   dbt build --select training_set+ --vars '{training_cutoff: "2026-03-30 00:00:00+00:00"}'
 -- Default cutoff: the simulation's current time. Never selects the current transaction
 -- status: a later reversal would leak the future.
+-- Starts where labels could exist (label coverage): the first transaction with a label known
+-- at the cutoff. Earlier transactions could never be labelled (the labelling process did not
+-- exist yet) and would enter as legitimate by default, real fraud among them.
 {% set cutoff = var("training_cutoff", none) %}
 {% set maturity = var("label_maturity_days", 60) %}
 
@@ -17,22 +20,36 @@ with clock as (
     {% endif %}
 ),
 
+coverage as (
+    -- point in time: only labels known at the cutoff decide where coverage starts
+    select min(l.event_ts) as label_coverage_from
+    from {{ ref('fct_labels') }} as l
+    cross join clock as k
+    where l.label = 1 and l.label_known_at <= k.cutoff
+),
+
 eligible as (
     select
         l.transaction_id,
         l.event_ts,
         l.label,
         l.label_known_at,
-        k.cutoff
+        k.cutoff,
+        c.label_coverage_from
     from {{ ref('fct_labels') }} as l
     cross join clock as k
-    where l.event_ts <= k.cutoff - interval '{{ maturity }}' day
+    cross join coverage as c
+    where
+        l.event_ts <= k.cutoff - interval '{{ maturity }}' day
+        and l.event_ts >= c.label_coverage_from
 )
 
 select
     f.*,
     e.event_ts,
     e.cutoff,
+    e.label_coverage_from,
+    {{ var("training_set_version", 2) }} as training_set_version,
     x.amount,
     x.currency,
     x.channel,

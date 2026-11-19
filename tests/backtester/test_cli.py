@@ -79,3 +79,22 @@ def test_an_unknown_snapshot_is_refused(lake: Any, capsys: pytest.CaptureFixture
         == 1
     )
     assert "not a published training set" in capsys.readouterr().out
+
+
+def test_compares_versions_side_by_side(
+    lake: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rules = [
+        "--rules",
+        str(ROOT / "rules/rules_v1.yml"),
+        "--rules",
+        str(ROOT / "rules/rules_v2.yml"),
+    ]
+    assert cli.main([*rules, "--snapshot-id", "111", "--no-store"]) == 0
+    out = capsys.readouterr().out
+    assert "# Backtest comparison: v1 vs v2" in out
+    assert "| overall | v1 | v2 | change |" in out
+    takeover = next(line for line in out.splitlines() if line.startswith("| account_takeover |"))
+    assert takeover.split("|")[2].strip() == "-"  # not a v1 rule
+    assert (tmp_path / "compare_rules_v1_vs_rules_v2_111.md").exists()
+    assert (tmp_path / "rules_v1_111.md").exists() and (tmp_path / "rules_v2_111.md").exists()

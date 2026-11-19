@@ -3,6 +3,7 @@
     uv run backtest --rules rules/rules_v1.yml                      # latest published set
     uv run backtest --rules rules/rules_v2.yml --snapshot-id 8254010497186583662
     uv run backtest --rules rules/rules_v2.yml --from 2026-01-10 --to 2026-01-20
+    uv run backtest --rules rules/rules_v1.yml --rules rules/rules_v2.yml   # side by side
 
 Reads the training set through DuckDB from the lake at its Iceberg snapshot, evaluates the
 rules with the decision service's own engine and context, prints and writes a Markdown
@@ -18,7 +19,7 @@ from typing import Any
 
 from backtester.data import connect, published, training_rows
 from backtester.metrics import Result, backtest
-from backtester.report import markdown
+from backtester.report import comparison, markdown
 from decision_service.context import RULE_NAMES, SNAPSHOT_FEATURES, TRANSACTION_FIELDS
 from rules.engine import RuleSet
 
@@ -82,7 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--rules", required=True, type=Path)
+    parser.add_argument(
+        "--rules", required=True, type=Path, action="append", help="repeat to compare versions"
+    )
     parser.add_argument(
         "--snapshot-id", type=int, help="default: the latest published training set"
     )
@@ -91,8 +94,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-store", action="store_true", help="do not append to rule_backtests")
     args = parser.parse_args(argv)
 
-    ruleset = RuleSet.load(args.rules, RULE_NAMES)
-    sha = hashlib.sha256(args.rules.read_bytes()).hexdigest()
     env = load_env()
     con = connect(env)
     sets = published(con)
@@ -110,32 +111,43 @@ def main(argv: list[str] | None = None) -> int:
     source = snapshot_source(chosen["snapshot_id"])
     columns = [*SNAPSHOT_FEATURES, *TRANSACTION_FIELDS]
     rows = training_rows(con, source, chosen["cutoff"], columns, (args.window_from, args.window_to))
-    result = backtest(rows, ruleset, columns)
-
     cutoff = chosen["cutoff"].isoformat(sep=" ")
     header = {
-        "rules": f"{args.rules} (sha256 {sha[:12]})",
         "training set": f"cutoff {cutoff}, snapshot {chosen['snapshot_id']}",
         "event window": f"{args.window_from or 'start'} .. {args.window_to or 'end'}",
     }
-    report = markdown(result, header)
-    print(report)
     REPORTS.mkdir(parents=True, exist_ok=True)
-    path = REPORTS / f"{args.rules.stem}_{chosen['snapshot_id']}.md"
-    path.write_text(report)
-    print(f"report: {path.relative_to(ROOT)}")
-    if not args.no_store:
-        run_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
-        run = {
-            "run_at": run_at,
-            "sha": sha,
-            "snapshot_id": chosen["snapshot_id"],
-            "cutoff": cutoff,
-            "from": args.window_from,
-            "to": args.window_to,
-        }
-        store(env, result, run)
-        print("metrics appended to lake.marts.rule_backtests")
+    results = []
+    for path in args.rules:
+        ruleset = RuleSet.load(path, RULE_NAMES)
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()
+        result = backtest(rows, ruleset, columns)
+        results.append(result)
+        report = markdown(result, {"rules": f"{path} (sha256 {sha[:12]})", **header})
+        if len(args.rules) == 1:
+            print(report)
+        out = REPORTS / f"{path.stem}_{chosen['snapshot_id']}.md"
+        out.write_text(report)
+        print(f"report: {out.relative_to(ROOT)}")
+        if not args.no_store:
+            run_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f+00:00")
+            run = {
+                "run_at": run_at,
+                "sha": sha,
+                "snapshot_id": chosen["snapshot_id"],
+                "cutoff": cutoff,
+                "from": args.window_from,
+                "to": args.window_to,
+            }
+            store(env, result, run)
+            print(f"metrics appended to lake.marts.rule_backtests (v{result.rules_version})")
+    if len(results) > 1:
+        text = comparison(results, header)
+        print(text)
+        stems = "_vs_".join(p.stem for p in args.rules)
+        out = REPORTS / f"compare_{stems}_{chosen['snapshot_id']}.md"
+        out.write_text(text)
+        print(f"comparison: {out.relative_to(ROOT)}")
     return 0
 
 
