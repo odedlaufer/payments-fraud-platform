@@ -1,0 +1,18 @@
+[project]
+name = "payments-orchestration"
+version = "0.1.0"
+description = "Dagster assets, checks, schedules and sensors for the lakehouse (PRD 5.9)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dagster==1.13.29",
+    "dagster-webserver==1.13.29",
+    "dagster-dbt==0.29.29",
+    "trino==0.340.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "orchestration"
