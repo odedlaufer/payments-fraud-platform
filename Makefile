@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -196,3 +196,9 @@ backtest: ## Replay a rules version over the latest published training set (RULE
 
 promote-rules: ## Promote a rules version through the gate (CANDIDATE=rules/rules_v2.yml; ARGS=--dry-run)
 	uv run python scripts/promote_rules.py --candidate $(CANDIDATE) $(ARGS)
+
+protect-training-sets: ## Tag every published training set's snapshot (expiry keeps tagged ones)
+	uv run python scripts/publish_training_set.py --protect
+
+iceberg-maintenance: ## Compact, expire snapshots > 7 days, remove orphans, on every lake table (FR-L5)
+	uv run python scripts/iceberg_maintenance.py $(ARGS)

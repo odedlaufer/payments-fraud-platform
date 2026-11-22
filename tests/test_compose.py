@@ -147,3 +147,27 @@ def test_flink_jars_are_locked() -> None:
     for sha, name, url in locked:
         assert len(sha) == 64 and all(c in "0123456789abcdef" for c in sha), name
         assert url.rsplit("/", 1)[1] == name
+
+
+def test_catalog_db_postgres_fits_its_container() -> None:
+    """shared_buffers + Lakekeeper's pooled backends must fit catalog-db's limit (a default
+    128 MB shared_buffers in 160 MB got backends OOM-killed under load)."""
+    db = SERVICES["catalog-db"]
+    args = db["command"]
+    settings = dict(args[i + 1].split("=", 1) for i, a in enumerate(args) if a == "-c")
+    shared_mb = int(settings["shared_buffers"].removesuffix("MB"))
+    env = SERVICES["lakekeeper"]["environment"]
+    pooled = int(env["LAKEKEEPER__PG_READ_POOL_CONNECTIONS"]) + int(
+        env["LAKEKEEPER__PG_WRITE_POOL_CONNECTIONS"]
+    )
+    limit_mb = int(db["deploy"]["resources"]["limits"]["memory"].removesuffix("m"))
+    assert (
+        shared_mb + pooled * 10 + 32 <= limit_mb
+    )  # ~10 MB per backend, ~32 MB for Postgres itself
+    assert pooled <= int(settings["max_connections"])
+
+
+def test_single_connect_worker_reassigns_at_once() -> None:
+    env = SERVICES["connect"]["environment"]
+    assert env["CONNECT_SCHEDULED_REBALANCE_MAX_DELAY_MS"] == "0"
+    assert int(env["CONNECT_WORKER_SYNC_TIMEOUT_MS"]) >= 10000

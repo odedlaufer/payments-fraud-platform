@@ -2,6 +2,7 @@
 
     uv run python scripts/publish_training_set.py --cutoff "2026-03-30 00:00:00+00:00"
     uv run python scripts/publish_training_set.py --verify      # re-check all published sets
+    uv run python scripts/publish_training_set.py --protect     # tag every published set
 
 1. builds marts.training_set for the cutoff with its tests (the leakage test, FR-PIT3, among
    them): any failure and nothing is published;
@@ -10,7 +11,8 @@
    and records the Iceberg snapshot id in lake.ops.training_sets with rows, positives and a
    fingerprint (an order-independent checksum over every column);
 4. proves the set reproduces: re-read through time travel (FOR VERSION AS OF the snapshot)
-   must give the same fingerprint.
+   must give the same fingerprint;
+5. tags the snapshot (lake_refs.py): snapshot expiry (FR-L5) never removes a tagged one.
 
 Run make dbt-build first so the upstream models are current.
 """
@@ -26,6 +28,7 @@ import trino
 
 from cdc_reconcile import load_env
 from gen_bronze import ROOT
+from lake_refs import catalog, protect, refs, tag_name, unprotected
 
 STAGING = "lake.marts.training_set"
 PUBLISHED = "lake.ml.training_set"
@@ -189,7 +192,24 @@ def record(cur: Any, cutoff: str, snapshot: int, rows: int, positives: int, dige
     )
 
 
-def verify_all(cur: Any) -> int:
+def registered(cur: Any) -> list[tuple[Any, int]]:
+    return [(c, int(snap)) for c, snap in fetch(cur, f"select cutoff, snapshot_id from {REGISTRY}")]
+
+
+def protect_all(cur: Any, env: dict[str, str]) -> int:
+    cat = catalog(env)
+    added = 0
+    for cutoff, snapshot in registered(cur):
+        name = tag_name(cutoff, snapshot)
+        if protect(cat, "ml.training_set", snapshot, name):
+            added += 1
+            print(f"  tagged {name}")
+    missing = unprotected(registered(cur), refs(cat, "ml.training_set"))
+    print(f"{added} tag(s) added; {len(missing)} published set(s) unprotected")
+    return 1 if missing else 0
+
+
+def verify_all(cur: Any, env: dict[str, str] | None = None) -> int:
     ok = True
     for cutoff, snapshot, rows, positives, digest in fetch(
         cur,
@@ -207,6 +227,10 @@ def verify_all(cur: Any) -> int:
             f"  cutoff {cutoff}  snapshot {snapshot}: "
             + ("reproduces" if same else f"DIFFERS {again}")
         )
+    if env is not None:
+        missing = unprotected(registered(cur), refs(catalog(env), "ml.training_set"))
+        print(f"  {len(missing)} published set(s) without a tag (make protect-training-sets)")
+        ok = ok and not missing
     print("every published training set reproduces" if ok else "A TRAINING SET DOES NOT REPRODUCE")
     return 0 if ok else 1
 
@@ -217,10 +241,14 @@ def main() -> int:
     )
     parser.add_argument("--cutoff", help='e.g. "2026-03-30 00:00:00+00:00"')
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--protect", action="store_true", help="tag every published set")
     args = parser.parse_args()
-    cur = cursor(load_env())
+    env = load_env()
+    cur = cursor(env)
+    if args.protect:
+        return protect_all(cur, env)
     if args.verify:
-        return verify_all(cur)
+        return verify_all(cur, env)
     if not args.cutoff:
         parser.error("--cutoff is required (or --verify)")
     cutoff = args.cutoff
@@ -275,6 +303,10 @@ def main() -> int:
         print(f"FAILED: time travel to {snapshot} gives {again}")
         return 1
     print(f"  select * from {PUBLISHED} for version as of {snapshot} -> identical")
+    print("== 5. protect the snapshot from expiry")
+    name = tag_name(cutoff, snapshot)
+    protect(catalog(env), "ml.training_set", snapshot, name)
+    print(f"  tagged {name}")
     print("training set published")
     return 0
 

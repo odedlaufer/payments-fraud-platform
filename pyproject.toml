@@ -31,6 +31,7 @@ dev = [
     "confluent-kafka[avro,schemaregistry]==2.16.0",
     "trino==0.340.0",
     "duckdb==1.5.6",
+    "pyiceberg==0.12.0",
 ]
 # Transformations on Trino (PRD: dbt Core + dbt-trino).
 dbt = [
@@ -59,7 +60,9 @@ known-first-party = [
     "cdc_snapshot",
     "parity_report",
     "publish_training_set",
-    "promote_rules",]
+    "promote_rules",
+    "lake_refs",
+    "iceberg_maintenance",]
 
 [tool.mypy]
 python_version = "3.12"
