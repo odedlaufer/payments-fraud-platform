@@ -134,6 +134,11 @@ services:
       CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
       CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      # One worker: reassign at once instead of waiting 5 min after a stall
+      # (scheduled.rebalance.max.delay.ms), and give a slow broker longer to serve the
+      # config log ("Didn't reach end of config log quickly enough", KAFKA-10021).
+      CONNECT_SCHEDULED_REBALANCE_MAX_DELAY_MS: "0"
+      CONNECT_WORKER_SYNC_TIMEOUT_MS: "10000"
       HEAP_OPTS: -Xms256m -Xmx384m
       # Connector configs reference ${env:...}; secrets never enter the config topic.
       CONNECT_CONFIG_PROVIDERS: env
@@ -258,6 +263,11 @@ services:
     <<: *restart
     image: postgres:16.15
     profiles: [lake]
+    # Sized to its 160 MB container: Postgres's default 128 MB shared_buffers count against
+    # the limit, and Lakekeeper's 15 pooled backends got killed by the kernel under load
+    # (cgroup OOM in catalog-db; every connection reset mid-commit). The catalog is small.
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "work_mem=2MB",
+              "-c", "maintenance_work_mem=16MB", "-c", "max_connections=30"]
     environment:
       POSTGRES_USER: ${CATALOG_DB_USER:?set in .env}
       POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:?set in .env}
@@ -283,6 +293,10 @@ services:
       LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
       LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@catalog-db:5432/${CATALOG_DB_NAME}
       LAKEKEEPER__PG_ENCRYPTION_KEY: ${LAKEKEEPER_ENCRYPTION_KEY:?set in .env}
+      # Pools sized for a handful of engines (defaults 10 read + 5 write): each pooled
+      # connection is a Postgres backend in catalog-db's 160 MB.
+      LAKEKEEPER__PG_READ_POOL_CONNECTIONS: "4"
+      LAKEKEEPER__PG_WRITE_POOL_CONNECTIONS: "2"
       RUST_LOG: info
     depends_on:
       catalog-db:
@@ -344,7 +358,8 @@ services:
   # SQL engine over the lakehouse; dbt target (PRD section 3).
   trino:
     <<: *restart
-    image: trinodb/trino:484
+    build: ./trino
+    image: payments-fraud-platform/trino:484-iceberg
     profiles: [lake]
     environment:
       # glibc malloc arenas (see connect); Trino runs many threads.
@@ -357,6 +372,7 @@ services:
       - "127.0.0.1:${TRINO_PORT:-8088}:8080"
     volumes:
       - ./trino/etc/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/etc/config.properties:/etc/trino/config.properties:ro
       - ./trino/etc/catalog/lake.properties:/etc/trino/catalog/lake.properties:ro
     healthcheck:
       test: ["CMD", "/usr/lib/trino/bin/health-check"]
@@ -370,7 +386,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1792m
+          memory: 3200m
+          # Trino sizes worker threads, drivers and writers from the CPUs it sees: all 14 of
+          # the VM's made a 2 GB node run like a 14-core server (OOM kills, GC stalls).
+          cpus: "4"
 
   # Flink session cluster (ADR-001, ADR-002): one JobManager, one TaskManager.
   flink-jobmanager:

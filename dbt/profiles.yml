@@ -11,4 +11,4 @@ payments:
       http_scheme: http
       database: lake
       schema: silver
-      threads: 2
+      threads: 1  # Trino's heavy models (card_offline, fct_transactions) never run together

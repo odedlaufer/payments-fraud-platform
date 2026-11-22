@@ -77,6 +77,8 @@ REQUIRED_FILES = [
     "scripts/parity_report.py",
     "scripts/publish_training_set.py",
     "scripts/promote_rules.py",
+    "scripts/lake_refs.py",
+    "scripts/iceberg_maintenance.py",
     "rules/live.env",
     "rules/rules_v1.yml",
     "rules/rules_v2.yml",
