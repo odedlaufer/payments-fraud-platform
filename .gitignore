@@ -34,3 +34,7 @@ flink/sql/repair/
 
 # Backtest reports: reproducible from a rules file and a training-set snapshot
 backtester/reports/
+
+# Dagster run storage, logs and schedules state (instance config dagster.yaml is kept)
+orchestration/dagster_home/*
+!orchestration/dagster_home/dagster.yaml

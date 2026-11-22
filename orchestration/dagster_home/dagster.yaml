@@ -1,0 +1,7 @@
+# Dagster instance (DAGSTER_HOME=orchestration/dagster_home, set by make orchestrate).
+# One run at a time: Trino runs one heavy dbt model at a time (incident 2026-11-19), and
+# two dbt builds would race on the same Iceberg tables.
+run_queue:
+  max_concurrent_runs: 1
+telemetry:
+  enabled: false

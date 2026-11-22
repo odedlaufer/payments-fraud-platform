@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance orchestrate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src features/src decision_service/src rules/src backtester/src scripts
+	uv run mypy tests simulator/src features/src decision_service/src rules/src backtester/src orchestration/src scripts
 
 test: ## Run unit tests
 	uv run pytest
@@ -202,3 +202,7 @@ protect-training-sets: ## Tag every published training set's snapshot (expiry ke
 
 iceberg-maintenance: ## Compact, expire snapshots > 7 days, remove orphans, on every lake table (FR-L5)
 	uv run python scripts/iceberg_maintenance.py $(ARGS)
+
+orchestrate: ## Dagster UI and daemon at http://localhost:3070; schedules and sensors run while it runs
+	cd dbt && uv run dbt parse --profiles-dir . --quiet
+	DAGSTER_HOME=$(CURDIR)/orchestration/dagster_home uv run dagster dev -m orchestration.definitions -p 3070
