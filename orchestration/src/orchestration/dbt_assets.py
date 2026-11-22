@@ -18,9 +18,15 @@ DBT.prepare_if_dev()
 SILVER = "staging silver"  # dbt selects by folder name (fqn); path: depends on the cwd
 
 
+# Tests spanning silver and downstream (e.g. marts cover every silver transaction) run only
+# where all their parents are built: in the downstream step. dbt's default ("eager") ran
+# them in the silver step against stale downstream tables, and they failed.
+SILVER_BUILD = ["build", "--indirect-selection", "cautious"]
+
+
 @dbt_assets(manifest=DBT.manifest_path, select=SILVER, name="silver_dbt")
 def silver_dbt(context: dg.AssetExecutionContext, dbt: DbtCliResource):  # type: ignore[no-untyped-def]
-    yield from dbt.cli(["build"], context=context).stream()
+    yield from dbt.cli(SILVER_BUILD, context=context).stream()
 
 
 @dbt_assets(manifest=DBT.manifest_path, exclude=SILVER, name="downstream_dbt")

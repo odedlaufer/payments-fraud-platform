@@ -101,3 +101,33 @@ def test_schedule_and_jobs() -> None:
 def test_one_run_at_a_time() -> None:
     instance = yaml.safe_load((ROOT / "orchestration/dagster_home/dagster.yaml").read_text())
     assert instance["run_queue"]["max_concurrent_runs"] == 1
+
+
+def test_cross_layer_tests_do_not_run_in_the_silver_step() -> None:
+    from orchestration.dbt_assets import SILVER_BUILD
+
+    assert SILVER_BUILD == ["build", "--indirect-selection", "cautious"]
+    nodes = json.loads((ROOT / "dbt/target/manifest.json").read_text())["nodes"].values()
+    silver = {
+        n["unique_id"]
+        for n in nodes
+        if n["resource_type"] == "model" and n["fqn"][1] in ("staging", "silver")
+    }
+    crossing = [
+        n["name"]
+        for n in nodes
+        if n["resource_type"] == "test"
+        and set(n["depends_on"]["nodes"]) & silver
+        and set(n["depends_on"]["nodes"]) - silver
+    ]
+    assert crossing, "there are tests spanning silver and downstream: they need cautious selection"
+
+
+def test_the_simulated_day_comes_from_bronze_not_silver() -> None:
+    """Silver moves only when a job builds it; bronze lands every 10 s."""
+    import inspect
+
+    from orchestration.automation import latest_simulated_day
+
+    source = inspect.getsource(latest_simulated_day)
+    assert "lake.bronze.cdc_transactions" in source and "lake.silver" not in source
