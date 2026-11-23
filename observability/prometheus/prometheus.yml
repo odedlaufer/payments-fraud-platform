@@ -1,0 +1,18 @@
+# Prometheus (OBS-1). Retention is set on the command line (docker-compose.yml): 8 days,
+# so the PRD's 7-day SLO run fits.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: decision-service   # decision latency, CDC lag, feature age, outcomes
+    static_configs:
+      - targets: ["decision-service:9108"]
+  - job_name: lake-metrics       # lakehouse freshness, parity
+    scrape_interval: 60s
+    static_configs:
+      - targets: ["lake-metrics:9109"]
+  - job_name: redpanda           # throughput, consumer lag
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]

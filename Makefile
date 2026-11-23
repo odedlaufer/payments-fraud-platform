@@ -22,7 +22,7 @@ fmt: ## Auto-format Python
 	uv run ruff check --fix .
 
 typecheck: ## Run mypy
-	uv run mypy tests simulator/src features/src decision_service/src rules/src backtester/src orchestration/src scripts
+	uv run mypy tests simulator/src features/src decision_service/src rules/src backtester/src orchestration/src observability/lake_metrics scripts
 
 test: ## Run unit tests
 	uv run pytest
