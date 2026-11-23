@@ -1,0 +1,88 @@
+# The human part of each data contract (DC-2): owner, purpose, SLOs, quality rules.
+# scripts/gen_contracts.py adds the columns and types from the real schemas (Avro, Trino) and
+# writes contracts/<name>.odcs.yaml. Edit here, then run make contracts.
+team:
+  name: data-platform
+  members:
+    - {username: odedlaufer, role: owner}
+
+contracts:
+  decisions:
+    id: payments-decisions
+    name: Fraud decisions
+    description:
+      purpose: Real-time approve / review / decline for every card transaction.
+      usage: bronze.decisions in the lakehouse, parity checks, backtests, analytics.
+      limitations: >-
+        Missing or stale features (older than 30 s) give review with reason stale_features,
+        never approve (FR-D4).
+    source: {type: avro, topic: decisions}
+    servers:
+      - {server: local, type: kafka, host: "localhost:19092", format: avro}
+    slaProperties:
+      - {property: latency, value: 5, unit: s, description: "p95 Postgres commit to decision (PRD section 2)"}
+    quality:
+      decisions:
+        - type: text
+          description: >-
+            Exactly one decision per transaction_id (FR-D5); decisions_check and
+            bronze_decisions_reconcile verify it.
+
+  silver:
+    id: payments-silver
+    name: Silver current-state tables
+    description:
+      purpose: One row per key with its latest state, applied from the Postgres CDC stream.
+      usage: SCD2 snapshots, marts, features, training sets.
+      limitations: Equals Postgres row for row (DQ-08, make silver-reconcile); built every 15 minutes.
+    source:
+      type: trino
+      schema: silver
+      tables:
+        customers_current: customer_id
+        cards_current: card_id
+        merchants_current: merchant_id
+        sessions_current: session_id
+        transactions_current: transaction_id
+        chargebacks_current: chargeback_id
+    servers:
+      - {server: local, type: trino, host: localhost, port: 8088, catalog: lake, schema: silver}
+    slaProperties:
+      - {property: frequency, value: 15, unit: min, description: "silver_job schedule (FR-O2)"}
+    quality:
+      "*":
+        - type: sql
+          description: The primary key is unique (DQ-09)
+          query: SELECT count(*) - count(DISTINCT {key}) FROM {object}
+          mustBe: 0
+
+  training_set:
+    id: payments-training-set
+    name: Point-in-time training sets
+    description:
+      purpose: Features as of each transaction, labels as known at the cutoff.
+      usage: Backtester (FR-BT1), the rule promotion gate, model training.
+      limitations: Each set is pinned to an Iceberg snapshot and tagged; reproduce with FOR VERSION AS OF.
+    source:
+      type: trino
+      schema: ml
+      tables:
+        training_set: [cutoff, transaction_id]
+    servers:
+      - {server: local, type: trino, host: localhost, port: 8088, catalog: lake, schema: ml}
+    slaProperties:
+      - {property: frequency, value: 1, unit: d, description: published on each new simulated day}
+    quality:
+      training_set:
+        - type: sql
+          description: No transaction younger than the 60-day maturity at its cutoff (FR-PIT2)
+          query: SELECT count(*) FROM {object} WHERE event_ts > cutoff - INTERVAL '60' DAY
+          mustBe: 0
+        - type: sql
+          description: Labels are 0 or 1
+          query: SELECT count(*) FROM {object} WHERE label NOT IN (0, 1)
+          mustBe: 0
+        - type: sql
+          description: No positive label known after its cutoff (no leakage, FR-PIT3)
+          query: SELECT count(*) FROM {object} WHERE label = 1 AND label_known_at > cutoff
+          mustBe: 0
