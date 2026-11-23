@@ -10,6 +10,7 @@ from orchestration.automation import (
     maintenance_schedule,
     parity_alert_job,
     parity_slo_sensor,
+    record_run_failure,
     rules_change_sensor,
     silver_job,
     silver_schedule,
@@ -30,6 +31,6 @@ defs = dg.Definitions(
     asset_checks=[lake_matches_postgres],
     jobs=[silver_job, daily_job, backtest_job, maintenance_job, parity_alert_job],
     schedules=[silver_schedule, maintenance_schedule],
-    sensors=[simulated_day_sensor, rules_change_sensor, parity_slo_sensor],
+    sensors=[simulated_day_sensor, rules_change_sensor, parity_slo_sensor, record_run_failure],
     resources={"dbt": DbtCliResource(project_dir=DBT)},
 )

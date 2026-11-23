@@ -79,3 +79,20 @@ def test_a_failing_script_fails_the_step(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(scripts, "run_script", lambda args: (1, "REFUSED: leakage"))
     with pytest.raises(dg.Failure, match="exited 1"):
         scripts.run_or_fail(dg.build_asset_context().log, ["scripts/publish_training_set.py"])
+
+
+def test_failed_runs_of_the_working_jobs_raise_gate_failed() -> None:
+    import inspect
+
+    import orchestration.automation as automation
+    from orchestration.definitions import defs
+
+    assert "record_run_failure" in {s.name for s in defs.sensors or []}
+    source = inspect.getsource(automation)
+    monitored = (
+        source[source.index("@dg.run_failure_sensor(") :].split("monitored_jobs=")[1].split("]")[0]
+    )
+    assert {"silver_job", "daily_job", "backtest_job", "maintenance_job"} <= set(
+        monitored.replace("[", "").replace(" ", "").split(",")
+    )
+    assert "parity_alert_job" not in monitored  # it fails on purpose and has its own alert

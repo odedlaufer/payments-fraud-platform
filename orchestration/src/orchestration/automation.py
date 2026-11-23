@@ -10,6 +10,8 @@
 - rules_change_sensor: a rules file changed -> backtest_job (FR-O3, FR-BT3).
 - parity_slo_sensor: parity fell below the 99.9% SLO -> parity_alert_job, which records the
   breach in lake.ops.alerts and fails visibly; once per breach, again after recovery.
+- record_run_failure: any failed run of the working jobs (a gate, a dbt check, a step) is
+  recorded in lake.ops.alerts; Prometheus raises GateFailed from it.
 """
 
 import hashlib
@@ -152,9 +154,8 @@ def parity_alert(
     return state == "breach" and cursor != "breach", state
 
 
-@dg.op
-def record_parity_alert(context: dg.OpExecutionContext) -> None:
-    rate = float(context.run.tags["parity"])
+def record_alert(alert: str, value: float | None = None, threshold: float | None = None) -> None:
+    """A row in lake.ops.alerts: lake-metrics exports recent ones, Prometheus alerts on them."""
     import trino
 
     env = load_env()
@@ -166,11 +167,22 @@ def record_parity_alert(context: dg.OpExecutionContext) -> None:
         "alert varchar, value double, threshold double)"
     )
     cur.fetchall()
+
+    def num(x: float | None) -> str:
+        return "null" if x is None else repr(x)
+
+    safe = alert.replace("'", "''")
     cur.execute(
         "insert into lake.ops.alerts values "
-        f"(current_timestamp, 'parity_below_slo', {rate}, {PARITY_SLO})"
+        f"(current_timestamp, '{safe}', {num(value)}, {num(threshold)})"
     )
     cur.fetchall()
+
+
+@dg.op
+def record_parity_alert(context: dg.OpExecutionContext) -> None:
+    rate = float(context.run.tags["parity"])
+    record_alert("parity_below_slo", rate, PARITY_SLO)
     raise dg.Failure(f"parity {rate:.4%} is below the {PARITY_SLO:.1%} SLO (DQ-14)")
 
 
@@ -191,3 +203,12 @@ def parity_slo_sensor(context: dg.SensorEvaluationContext) -> Any:
     if not alert:
         return dg.SkipReason(f"parity {rate} ({state})")
     return dg.RunRequest(run_key=f"parity-breach-{rate:.6f}", tags={"parity": str(rate)})
+
+
+@dg.run_failure_sensor(
+    monitored_jobs=[silver_job, daily_job, backtest_job, maintenance_job],
+    default_status=dg.DefaultSensorStatus.RUNNING,
+    description="Records failed runs in lake.ops.alerts: the GateFailed alert (PRD section 7)",
+)
+def record_run_failure(context: dg.RunFailureSensorContext) -> None:
+    record_alert(f"dagster_run_failed:{context.dagster_run.job_name}")

@@ -1,5 +1,6 @@
 """Observability (OBS-1, PRD sections 2 and 7): the SLO dashboard, scrape targets, exporters."""
 
+import functools
 import importlib.util
 import json
 from pathlib import Path
@@ -47,6 +48,7 @@ def test_every_scrape_target_is_a_compose_service_on_its_metrics_port() -> None:
     ports = {
         "decision-service": SERVICES["decision-service"]["environment"]["METRICS_PORT"],
         "lake-metrics": SERVICES["lake-metrics"]["environment"]["METRICS_PORT"],
+        "stream-metrics": SERVICES["stream-metrics"]["environment"]["METRICS_PORT"],
         "redpanda": "9644",
     }
     targets = [
@@ -59,7 +61,7 @@ def test_every_scrape_target_is_a_compose_service_on_its_metrics_port() -> None:
 
 
 def test_observability_runs_in_its_own_profile_with_health_checks() -> None:
-    for name in ("prometheus", "grafana", "lake-metrics"):
+    for name in ("prometheus", "grafana", "lake-metrics", "stream-metrics", "alertmanager"):
         assert SERVICES[name]["profiles"] == ["obs"]
         assert "healthcheck" in SERVICES[name]
     assert "8d" in " ".join(SERVICES["prometheus"]["command"])  # 7-day SLO run fits
@@ -96,19 +98,24 @@ def test_decision_metrics_measure_the_slo_durations() -> None:
     assert sample("decisions_total", {"decision": "approve", "reason": "stale_features"}) >= 1
 
 
-def lake_metrics() -> Any:
-    spec = importlib.util.spec_from_file_location(
-        "lake_metrics", ROOT / "observability/lake_metrics/lake_metrics.py"
-    )
+@functools.cache
+def load(name: str) -> Any:
+    """Each exporter module once: its metrics register in Prometheus's global registry."""
+    spec = importlib.util.spec_from_file_location(name, ROOT / f"observability/{name}/{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
+def lake_metrics() -> Any:
+    return load("lake_metrics")
+
+
 class FakeCursor:
-    def __init__(self, fail_on: str = "") -> None:
+    def __init__(self, fail_on: str = "", alerts: list[tuple[str, int]] | None = None) -> None:
         self.fail_on, self.sql = fail_on, ""
+        self.alerts = alerts if alerts is not None else [("dagster_run_failed:daily_job", 2)]
 
     def execute(self, sql: str) -> None:
         if self.fail_on and self.fail_on in sql:
@@ -116,7 +123,14 @@ class FakeCursor:
         self.sql = sql
 
     def fetchone(self) -> tuple[Any, ...]:
-        return (1_700_000_000.0,) if "$snapshots" in self.sql else (999, 1000)
+        if "$snapshots" in self.sql:
+            return (1_700_000_000.0,)
+        if "information_schema" in self.sql:
+            return (1,)
+        return (999, 1000)
+
+    def fetchall(self) -> list[tuple[str, int]]:
+        return self.alerts
 
 
 def test_lake_metrics_set_freshness_and_parity_and_count_errors() -> None:
@@ -129,3 +143,70 @@ def test_lake_metrics_set_freshness_and_parity_and_count_errors() -> None:
     assert (
         lm.LAST_COMMIT.labels(table="cdc_cards")._value.get() == 1_700_000_000.0
     )  # others still set
+
+
+def test_lake_metrics_count_recent_alerts_and_reset_old_ones() -> None:
+    lm = lake_metrics()
+    assert lm.refresh(FakeCursor()) is True
+    assert lm.ALERTS_RECENT.labels(alert="dagster_run_failed:daily_job")._value.get() == 2
+    assert lm.refresh(FakeCursor(alerts=[])) is True  # an hour later: nothing recent
+    assert lm.ALERTS_RECENT.labels(alert="dagster_run_failed:daily_job")._value.get() == 0
+
+
+def test_prometheus_loads_the_rules_and_sends_to_alertmanager() -> None:
+    assert PROMETHEUS["rule_files"] == ["/etc/prometheus/rules/alerts.yml"]
+    (am,) = PROMETHEUS["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"]
+    assert am == "alertmanager:9093"
+    mounts = SERVICES["prometheus"]["volumes"]
+    assert "./observability/prometheus/rules:/etc/prometheus/rules:ro" in mounts
+
+
+def test_dashboard_shows_firing_alerts_first() -> None:
+    first = DASHBOARD["panels"][0]
+    assert first["title"] == "Firing alerts" and "ALERTS" in first["targets"][0]["expr"]
+
+
+def stream_metrics(monkeypatch: Any, responses: dict[str, Any]) -> Any:
+    module = load("stream_metrics")
+
+    def fake_get(url: str) -> Any:
+        for suffix, value in responses.items():
+            if url.endswith(suffix):
+                if isinstance(value, Exception):
+                    raise value
+                return value
+        raise OSError(f"unexpected {url}")
+
+    monkeypatch.setattr(module, "get_json", fake_get)
+    return module
+
+
+def test_stream_metrics_count_the_running_flink_run(monkeypatch: Any) -> None:
+    overview = {"jobs": [
+        {"name": "bronze-cdc", "jid": "old", "state": "CANCELED"},
+        {"name": "bronze-cdc", "jid": "new", "state": "RUNNING"},
+        {"name": "features-card", "jid": "f", "state": "RUNNING"},
+    ]}  # fmt: skip
+    sm = stream_metrics(monkeypatch, {
+        "/jobs/overview": overview,
+        "/checkpoints": {"counts": {"completed": 40, "failed": 1}},
+        "numRestarts": [{"id": "numRestarts", "value": "0"}],
+    })  # fmt: skip
+    sm.read_flink("http://flink")
+    assert (
+        sm.FLINK_RUNNING.labels(flink_job="bronze-cdc")._value.get() == 1
+    )  # the cancelled run is ignored
+    assert (
+        sm.FLINK_RUNNING.labels(flink_job="bronze-decisions")._value.get() == 0
+    )  # not listed: down
+    assert sm.CKPT_DONE.labels(flink_job="features-card")._value.get() == 40
+
+
+def test_stream_metrics_unreachable_services_read_as_down(monkeypatch: Any) -> None:
+    sm = stream_metrics(
+        monkeypatch, {"/jobs/overview": OSError("refused"), "/status": OSError("refused")}
+    )
+    sm.read_flink("http://flink")
+    sm.read_connect("http://connect")
+    assert all(sm.FLINK_RUNNING.labels(flink_job=j)._value.get() == 0 for j in sm.FLINK_JOBS)
+    assert sm.CONNECT_TASK.labels(connector="payments-postgres", task="0")._value.get() == 0

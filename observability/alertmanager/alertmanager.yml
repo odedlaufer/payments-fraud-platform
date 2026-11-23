@@ -1,0 +1,12 @@
+# Alertmanager: groups and routes the alerts Prometheus raises (PRD section 7).
+# Firing alerts show at http://localhost:9093 and on the Platform SLOs dashboard. To also
+# notify Slack, add a slack_configs receiver here (the PRD allows Slack or email).
+route:
+  receiver: default
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default
