@@ -9,12 +9,62 @@
   "timezone": "utc",
   "refresh": "30s",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "time": {
     "from": "now-1h",
     "to": "now"
   },
   "panels": [
+    {
+      "id": 40,
+      "type": "table",
+      "title": "Firing alerts",
+      "description": "Alerts Prometheus is raising now (PRD section 7). Empty means healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "instant": true,
+          "format": "table",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "alertstate": true
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No alerts firing"
+        },
+        "overrides": []
+      }
+    },
     {
       "id": 1,
       "type": "stat",
@@ -28,7 +78,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -84,7 +134,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 11
       },
       "targets": [
         {
@@ -134,7 +184,7 @@
         "h": 6,
         "w": 4,
         "x": 4,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -190,7 +240,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 11
       },
       "targets": [
         {
@@ -240,7 +290,7 @@
         "h": 6,
         "w": 4,
         "x": 8,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -296,7 +346,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 19
       },
       "targets": [
         {
@@ -346,7 +396,7 @@
         "h": 6,
         "w": 4,
         "x": 12,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -402,7 +452,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 19
       },
       "targets": [
         {
@@ -452,7 +502,7 @@
         "h": 6,
         "w": 4,
         "x": 16,
-        "y": 0
+        "y": 5
       },
       "targets": [
         {
@@ -508,7 +558,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 22
+        "y": 27
       },
       "targets": [
         {
@@ -557,7 +607,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 22
+        "y": 27
       },
       "targets": [
         {

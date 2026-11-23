@@ -621,6 +621,7 @@ services:
       - "127.0.0.1:${PROMETHEUS_PORT:-9095}:9090"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
@@ -672,6 +673,48 @@ services:
       METRICS_PORT: "9109"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9109/metrics')"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+
+  alertmanager:
+    <<: *restart
+    image: prom/alertmanager:v0.28.1
+    profiles: [obs]
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
+  stream-metrics:
+    <<: *restart
+    build: ./observability/stream_metrics
+    image: payments-fraud-platform/stream-metrics:0.1.0
+    profiles: [obs]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CONNECT_URL: http://connect:8083
+      FLINK_URL: http://flink-jobmanager:8081
+      METRICS_PORT: "9110"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9110/metrics')"]
       interval: 15s
       timeout: 5s
       retries: 8

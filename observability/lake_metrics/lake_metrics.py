@@ -5,6 +5,8 @@
   freshness (PRD section 2, SLO < 5 min) is time() minus this.
 - lake_parity_ratio / lake_parity_compared: online/offline feature parity over all
   decisions compared (marts.parity_daily, "(all features)"). SLO >= 99.9%.
+- lake_alerts_recent{alert}: alerts recorded in lake.ops.alerts in the last hour (Dagster run
+  failures, parity breaches); names no longer recent drop back to 0.
 - lake_metrics_errors{query}: failed queries; lake_metrics_last_success_timestamp_seconds.
 """
 
@@ -27,6 +29,8 @@ PARITY = Gauge("lake_parity_ratio", "Online/offline feature parity over all comp
 COMPARED = Gauge("lake_parity_compared", "Decisions compared for parity")
 ERRORS = Counter("lake_metrics_errors", "Failed lake queries", ["query"])
 LAST_SUCCESS = Gauge("lake_metrics_last_success_timestamp_seconds", "Last complete refresh")
+ALERTS_RECENT = Gauge("lake_alerts_recent", "Alerts in lake.ops.alerts in the last hour", ["alert"])
+SEEN_ALERTS: set[str] = set()
 
 
 def one(cur: Any, sql: str) -> Any:
@@ -59,6 +63,25 @@ def refresh(cur: Any) -> bool:
             COMPARED.set(float(compared))
     except Exception:
         ERRORS.labels(query="parity").inc()
+        ok = False
+    try:
+        exists = one(
+            cur,
+            "select count(*) from lake.information_schema.tables "
+            "where table_schema = 'ops' and table_name = 'alerts'",
+        )
+        counts: dict[str, float] = {}
+        if exists:
+            cur.execute(
+                "select alert, count(*) from lake.ops.alerts "
+                "where raised_at > current_timestamp - interval '1' hour group by alert"
+            )
+            counts = {str(a): float(n) for a, n in cur.fetchall()}
+        for name in SEEN_ALERTS | set(counts):
+            ALERTS_RECENT.labels(alert=name).set(counts.get(name, 0.0))
+        SEEN_ALERTS.update(counts)
+    except Exception:
+        ERRORS.labels(query="alerts").inc()
         ok = False
     if ok:
         LAST_SUCCESS.set(time.time())

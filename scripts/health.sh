@@ -110,6 +110,15 @@ s3_bucket_exists() {
 
 echo "Health check (profiles: ${PROFILES//,/ })"
 
+# The memory budget (tests/test_compose.py) assumes this stack has the Docker VM to itself:
+# another project's containers pushed it out of memory once (incident 2026-11-19 follow-up).
+others=$(docker ps --format '{{.Label "com.docker.compose.project"}}' | grep -v '^$' \
+  | grep -vx "payments-fraud-platform" | sort | uniq -c || true)
+if [[ -n "$others" ]]; then
+  echo "  WARN other projects share the Docker VM (stop them: docker compose -p <name> stop):"
+  while read -r line; do echo "        $line"; done <<< "$others"
+fi
+
 if has_profile core; then
   wait_for "postgres" docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
   wait_for "oltp-migrations" migrations_applied
@@ -149,10 +158,20 @@ down = [t["labels"]["job"] for t in targets if t["health"] != "up"]
 sys.exit(0 if targets and not down else 1)'
 }
 
+# The PRD's alert rules are loaded into Prometheus.
+prom_rules_loaded() {
+  curl -fsS --max-time 3 "http://localhost:${PROMETHEUS_PORT}/api/v1/rules" | python3 -c '
+import json, sys
+groups = json.load(sys.stdin)["data"]["groups"]
+sys.exit(0 if sum(len(g["rules"]) for g in groups) >= 7 else 1)'
+}
+
 if has_profile obs; then
   wait_for "prometheus" http_ok "http://localhost:${PROMETHEUS_PORT}/-/ready"
   wait_for "grafana" http_ok "http://localhost:${GRAFANA_PORT}/api/health"
+  wait_for "alertmanager" http_ok "http://localhost:${ALERTMANAGER_PORT:-9093}/-/ready"
   wait_for "prometheus-targets" prom_targets_up
+  wait_for "alert-rules" prom_rules_loaded
 fi
 if (( FAILED )); then
   echo "Unhealthy. Inspect with: make ps / make logs"

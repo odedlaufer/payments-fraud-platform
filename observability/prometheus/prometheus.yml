@@ -4,6 +4,14 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/rules/alerts.yml   # PRD section 7; unit-tested with promtool
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: decision-service   # decision latency, CDC lag, feature age, outcomes
     static_configs:
@@ -12,6 +20,9 @@ scrape_configs:
     scrape_interval: 60s
     static_configs:
       - targets: ["lake-metrics:9109"]
+  - job_name: stream-metrics     # replication slot, Connect tasks, Flink jobs and checkpoints
+    static_configs:
+      - targets: ["stream-metrics:9110"]
   - job_name: redpanda           # throughput, consumer lag
     metrics_path: /public_metrics
     static_configs:

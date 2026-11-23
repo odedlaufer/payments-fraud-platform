@@ -1,0 +1,67 @@
+# PRD section 7 alerts. Unit-tested with promtool (alerts.test.yml, run by make check).
+# DLQ spike arrives with the dead-letter queues (6.3).
+groups:
+  - name: payments-fraud-platform
+    rules:
+      - alert: CdcStalled
+        expr: >-
+          (max(pg_replication_slot_active{slot="payments_cdc_slot"}) == 0)
+          or (max(pg_replication_slot_lag_bytes{slot="payments_cdc_slot"}) > 100 * 1024 * 1024)
+          or (min(connect_task_running) == 0)
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: CDC is stalled (slot inactive, > 100 MB behind, or the Connect task not running)
+          action: make health; curl localhost:8083/connectors/payments-postgres/status; docker compose restart connect
+
+      - alert: DecisionsSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(decision_latency_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Decision latency p95 above 5 s for 5 minutes (SLO < 5 s)
+          action: check feature-sink and decision-service logs, Redis memory and Kafka consumer lag
+
+      - alert: StaleFeatures
+        expr: >-
+          sum(rate(decisions_total{reason="stale_features"}[10m]))
+          / sum(rate(decisions_total[10m])) > 0.01
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: More than 1% of decisions over 10 minutes had stale or missing features
+          action: check the features-card Flink job, feature-sink health and Redis
+
+      - alert: ParityBreach
+        expr: lake_parity_ratio < 0.999
+        labels: {severity: warning}
+        annotations:
+          summary: Online/offline feature parity below 99.9% (DQ-14)
+          action: make parity-report; mismatches and their causes are in lake.ops.parity_mismatches
+
+      - alert: GateFailed
+        expr: sum(lake_alerts_recent{alert=~"dagster_run_failed.*"}) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: A Dagster run failed in the last hour (a gate, a dbt check or a step)
+          action: open http://localhost:3070 -> Runs; lake.ops.alerts names the job
+
+      - alert: FlinkUnhealthy
+        expr: >-
+          (min(flink_job_running) == 0)
+          or (max(increase(flink_job_restarts[5m])) > 0)
+          or (max(increase(flink_checkpoints_failed[10m])) >= 3
+              and min(increase(flink_checkpoints_completed[10m])) == 0)
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: A Flink job is down, restarting, or failing its checkpoints
+          action: open http://localhost:8081; make health
+
+      - alert: MetricsTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "Prometheus cannot scrape {{ $labels.job }}: its SLOs and alerts are blind"
+          action: docker compose ps; make health
