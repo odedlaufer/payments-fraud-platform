@@ -7,6 +7,7 @@ dependencies = [
     "dagster==1.13.29",
     "dagster-webserver==1.13.29",
     "dagster-dbt==0.29.29",
+    "openlineage-dbt==1.55.0",
     "trino==0.340.0",
 ]
 

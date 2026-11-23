@@ -13,6 +13,7 @@ from pathlib import Path
 import dagster as dg
 from dagster_dbt import get_asset_key_for_model
 
+from orchestration import lineage
 from orchestration.dbt_assets import ROOT, downstream_dbt
 from orchestration.scripts import run_or_fail
 
@@ -42,6 +43,11 @@ def rules_files(root: Path = ROOT) -> list[str]:
 def published_training_set(context: dg.AssetExecutionContext) -> dg.MaterializeResult[None]:
     cutoff = cutoff_for(context)
     output = run_or_fail(context.log, ["scripts/publish_training_set.py", "--cutoff", cutoff])
+    lineage.emit_run(
+        "dagster.publish_training_set",
+        [lineage.lake("marts.training_set")],
+        [lineage.lake("ml.training_set")],
+    )
     staged = next((line.strip() for line in output.splitlines() if "staged:" in line), "")
     return dg.MaterializeResult(metadata={"cutoff": cutoff, "staged": staged})
 
@@ -58,6 +64,11 @@ def rule_backtests(context: dg.AssetExecutionContext) -> dg.MaterializeResult[No
     for f in files:
         args += ["--rules", f]
     output = run_or_fail(context.log, args)
+    lineage.emit_run(
+        "dagster.rule_backtests",
+        [lineage.lake("ml.training_set")],
+        [lineage.lake("marts.rule_backtests")],
+    )
     overall = [
         line
         for line in output.splitlines()

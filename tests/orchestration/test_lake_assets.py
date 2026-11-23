@@ -54,6 +54,7 @@ def test_training_set_cutoff_is_the_runs_simulated_day() -> None:
 
 def test_assets_call_the_project_scripts(monkeypatch: pytest.MonkeyPatch) -> None:
     import orchestration.lake_assets as la
+    from orchestration import lineage as lineage_module
 
     calls: list[list[str]] = []
 
@@ -62,6 +63,13 @@ def test_assets_call_the_project_scripts(monkeypatch: pytest.MonkeyPatch) -> Non
         return "  staged: 10 transactions"
 
     monkeypatch.setattr(la, "run_or_fail", fake_run)
+    sent: list[tuple[str, Any, Any]] = []
+
+    def record(job: str, inputs: Any, outputs: Any) -> bool:
+        sent.append((job, inputs, outputs))
+        return True
+
+    monkeypatch.setattr(lineage_module, "emit_run", record)
     monkeypatch.setattr(la, "cutoff_for", lambda context: "2026-04-02 00:00:00+00:00")
     la.published_training_set(dg.build_asset_context())
     la.rule_backtests(dg.build_asset_context())
@@ -71,6 +79,10 @@ def test_assets_call_the_project_scripts(monkeypatch: pytest.MonkeyPatch) -> Non
     assert calls[1][2:] == [x for f in la.rules_files() for x in ("--rules", f)]
     assert "rules/rules_v1.yml" in calls[1] and "rules/rules_v2.yml" in calls[1]
     assert calls[2] == ["scripts/iceberg_maintenance.py"]
+    assert [(job, [n for _, n in i], [n for _, n in o]) for job, i, o in sent] == [
+        ("dagster.publish_training_set", ["lake.marts.training_set"], ["lake.ml.training_set"]),
+        ("dagster.rule_backtests", ["lake.ml.training_set"], ["lake.marts.rule_backtests"]),
+    ]
 
 
 def test_a_failing_script_fails_the_step(monkeypatch: pytest.MonkeyPatch) -> None:
