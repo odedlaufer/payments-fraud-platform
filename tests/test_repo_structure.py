@@ -79,6 +79,8 @@ REQUIRED_FILES = [
     "scripts/promote_rules.py",
     "scripts/lake_refs.py",
     "scripts/dlq_replay.py",
+    "scripts/gen_contracts.py",
+    "contracts/agreements.yaml",
     "scripts/iceberg_maintenance.py",
     "rules/live.env",
     "rules/rules_v1.yml",

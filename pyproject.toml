@@ -64,6 +64,7 @@ known-first-party = [
     "promote_rules",
     "lake_refs",
     "dlq_replay",
+    "gen_contracts",
     "iceberg_maintenance",]
 
 [tool.mypy]
