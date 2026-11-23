@@ -1,5 +1,6 @@
 """Pending transactions: decided when their snapshot arrives or at their deadline."""
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -98,11 +99,21 @@ def test_redis_down_means_stale_at_the_deadline_not_a_crash() -> None:
 
 def test_offsets_are_committed_only_up_to_the_oldest_pending() -> None:
     r = resolver(FakeStore())
-    consumed: dict[int, Any] = {0: 14}
-    assert r.committable(consumed) == {0: 15}
+    source = ("pg.public.transactions", 0)
+    consumed: dict[tuple[str, int], int] = {source: 14}
+    assert r.committable(consumed) == {source: 15}
     r.add(pending(1, 12))
     r.add(pending(2, 13))
-    assert r.committable(consumed) == {0: 12}
+    assert r.committable(consumed) == {source: 12}
+
+
+def test_offsets_are_tracked_per_topic() -> None:
+    """A replayed event pending on the retry topic holds back only the retry topic."""
+    r = resolver(FakeStore())
+    source, retry = ("pg.public.transactions", 0), ("retry.decision-service", 0)
+    consumed = {source: 20, retry: 5}
+    r.add(replace(pending(1, 4), topic=retry[0]))
+    assert r.committable(consumed) == {source: 21, retry: 4}
 
 
 def test_waits_for_customer_context_then_stale_at_the_deadline() -> None:

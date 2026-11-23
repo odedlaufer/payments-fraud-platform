@@ -79,6 +79,13 @@ connector_running() {
     | grep -o '"state":"RUNNING"' | wc -l | grep -qE '^ *[2-9]'
 }
 
+# Debezium actually holds its replication slot. Connect reported a task RUNNING while its
+# Kafka clients had lost the broker and nothing streamed (2026-11-23): the slot is the truth.
+cdc_slot_active() {
+  docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+    "select active from pg_replication_slots where slot_name = 'payments_cdc_slot'" | grep -qx t
+}
+
 # JobManager is up and the TaskManager has registered its slots.
 flink_ready() {
   curl -fsS --max-time 3 "http://localhost:${FLINK_UI_PORT}/overview" | grep -qE '"taskmanagers":[1-9]'
@@ -127,6 +134,7 @@ if has_profile core; then
   wait_for "redpanda-console" http_ok "http://localhost:${REDPANDA_CONSOLE_PORT}/"
   wait_for "kafka-connect" connect_plugins_ready
   wait_for "cdc:payments-postgres" connector_running payments-postgres
+  wait_for "cdc:slot-active" cdc_slot_active
 fi
 
 if has_profile lake; then

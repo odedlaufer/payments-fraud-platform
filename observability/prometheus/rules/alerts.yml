@@ -1,5 +1,4 @@
 # PRD section 7 alerts. Unit-tested with promtool (alerts.test.yml, run by make check).
-# DLQ spike arrives with the dead-letter queues (6.3).
 groups:
   - name: payments-fraud-platform
     rules:
@@ -57,6 +56,24 @@ groups:
         annotations:
           summary: A Flink job is down, restarting, or failing its checkpoints
           action: open http://localhost:8081; make health
+
+      - alert: DlqSpike
+        expr: >-
+          sum(rate(dead_lettered_total[10m]))
+          / sum(rate(transaction_events_consumed_total[10m])) > 0.001
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Dead letters above 0.1% of consumed events over 10 minutes
+          action: "make dlq-replay ARGS=--dry-run shows the codes; fix the cause, then make dlq-replay"
+
+      - alert: LakehouseStale
+        expr: time() - lake_table_last_commit_timestamp_seconds{table="cdc_transactions"} > 300
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: No Iceberg commit to bronze transactions in 5 minutes (DQ-07)
+          action: check the bronze-cdc Flink job and its checkpoints (http://localhost:8081)
 
       - alert: MetricsTargetDown
         expr: up == 0

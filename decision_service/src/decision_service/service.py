@@ -26,13 +26,16 @@ from typing import Any, cast
 
 import redis
 from confluent_kafka import Consumer, Message, Producer, TopicPartition
+from confluent_kafka.admin import AdminClient
+from confluent_kafka.cimpl import NewTopic
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 
-from decision_service import metrics
+from decision_service import dead_letter, metrics
 from decision_service.context import RULE_NAMES
 from decision_service.customer_features import Ask, customer_values
+from decision_service.dead_letter import RejectedEventError
 from decision_service.decision import Transaction, avro_schema, decide
 from decision_service.online_store import CardFeatures, OnlineStore
 from features.model import load
@@ -54,6 +57,7 @@ class Pending:
     offset: int
     consumed_ms: int
     deadline_ms: int
+    topic: str = SOURCE  # or the retry topic (dead_letter.RETRY)
 
 
 Ready = tuple[Pending, CardFeatures | None, dict[str, Any] | None, int | None]
@@ -107,11 +111,12 @@ class Resolver:
             del self.pending[txn_id]
         return ready
 
-    def committable(self, consumed: dict[int, int]) -> dict[int, int]:
-        """Per partition: the next offset that is safe to commit (all before it decided)."""
-        safe = {part: last + 1 for part, last in consumed.items()}
+    def committable(self, consumed: dict[tuple[str, int], int]) -> dict[tuple[str, int], int]:
+        """Per (topic, partition): the next offset safe to commit (all before it decided)."""
+        safe = {key: last + 1 for key, last in consumed.items()}
         for p in self.pending.values():
-            safe[p.partition] = min(safe.get(p.partition, p.offset), p.offset)
+            key = (p.topic, p.partition)
+            safe[key] = min(safe.get(key, p.offset), p.offset)
         return safe
 
 
@@ -139,10 +144,11 @@ def main() -> int:
     producer = Producer(
         {"bootstrap.servers": bootstrap, "enable.idempotence": True, "linger.ms": 5}
     )
-    consumer.subscribe([SOURCE])
+    ensure_topics(bootstrap, [dead_letter.DLQ, dead_letter.RETRY])
+    consumer.subscribe([SOURCE, dead_letter.RETRY])
     defs = load()
     resolver = Resolver(store, wait_ms, lambda asks: customer_values(defs, store, asks))
-    consumed: dict[int, int] = {}
+    consumed: dict[tuple[str, int], int] = {}
 
     running = True
 
@@ -153,7 +159,11 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    metrics.serve(int(os.environ.get("METRICS_PORT", "9108")))
+    metrics.serve(
+        int(os.environ.get("METRICS_PORT", "9108")),
+        topics=(SOURCE, dead_letter.RETRY),
+        codes=dead_letter.CODES,
+    )
     outcomes: Counter[str] = Counter()
     latencies: list[int] = []
     last_report = time.monotonic()
@@ -161,15 +171,29 @@ def main() -> int:
           f"wait {wait_ms} ms", flush=True)  # fmt: skip
     while running:
         HEARTBEAT.touch()
+        dead_lettered = False
         for msg in consumer.consume(500, timeout=0.02):
             if msg.error() is not None:
                 continue
-            part, offset = cast(int, msg.partition()), cast(int, msg.offset())
-            consumed[part] = max(consumed.get(part, -1), offset)
-            txn = _transaction(msg, deserialize)
+            topic, part = cast(str, msg.topic()), cast(int, msg.partition())
+            offset = cast(int, msg.offset())
+            consumed[(topic, part)] = max(consumed.get((topic, part), -1), offset)
+            metrics.CONSUMED.labels(topic=topic).inc()
+            try:
+                txn = _transaction(msg, deserialize)
+            except RejectedEventError as rejected:
+                producer.produce(
+                    dead_letter.DLQ,
+                    key=msg.key(),
+                    value=msg.value(),
+                    headers=dead_letter.headers(rejected, topic, part, offset),
+                )
+                metrics.DEAD_LETTERED.labels(code=rejected.code).inc()
+                dead_lettered = True
+                continue
             if txn is not None:
                 metrics.observe_consumed(msg.timestamp(), txn.commit_ms)
-                resolver.add(Pending(txn, part, offset, now_ms(), now_ms() + wait_ms))
+                resolver.add(Pending(txn, part, offset, now_ms(), now_ms() + wait_ms, topic))
         ready = resolver.resolve(now_ms())
         metrics.PENDING.set(len(resolver.pending))
         decided_ids = []
@@ -185,16 +209,16 @@ def main() -> int:
             metrics.observe_decision(record, snapshot.written_at_ms if snapshot else None)
             outcomes[f"{record['decision']}:{record['reason']}"] += 1
             latencies.append(record["latency_ms"])
-        if decided_ids:
-            producer.flush()
+        if decided_ids or dead_lettered:
+            producer.flush()  # decisions and dead letters are durable before offsets commit
             try:
                 store.mark_decided(decided_ids)
             except redis.RedisError as exc:
                 print(f"decision-service: could not mark decided: {exc}", file=sys.stderr)
         safe = resolver.committable(consumed)
-        if safe and (decided_ids or not resolver.pending):
+        if safe and (decided_ids or dead_lettered or not resolver.pending):
             consumer.commit(
-                offsets=[TopicPartition(SOURCE, part, off) for part, off in safe.items()],
+                offsets=[TopicPartition(t, part, off) for (t, part), off in safe.items()],
                 asynchronous=False,
             )
             consumed.clear()
@@ -209,11 +233,44 @@ def main() -> int:
 
 
 def _transaction(msg: Message, deserialize: Callable[..., Any]) -> Transaction | None:
+    """A transaction creation to decide, None for other change events; RejectedEventError
+    for an event that must go to the dead-letter queue (DQ-01, DQ-03)."""
     value = msg.value()
     if value is None:  # tombstone
         return None
-    event = deserialize(value, SerializationContext(SOURCE, MessageField.VALUE))
-    return Transaction.from_debezium(cast(dict[str, Any], event))
+    try:
+        context = SerializationContext(cast(str, msg.topic()), MessageField.VALUE)
+        event = deserialize(value, context)
+    except Exception as exc:
+        raise RejectedEventError("deserialize_failed", str(exc)) from exc
+    if not isinstance(event, dict):
+        raise RejectedEventError("malformed_event", f"not a change event: {type(event).__name__}")
+    after = event.get("after")
+    if event.get("op") == "c" and isinstance(after, dict):
+        code = dead_letter.check(after)
+        if code is not None:
+            raise RejectedEventError(code, f"transaction_id={after.get('transaction_id')}")
+    try:
+        return Transaction.from_debezium(cast(dict[str, Any], event))
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise RejectedEventError("malformed_event", repr(exc)) from exc
+
+
+def ensure_topics(bootstrap: str, topics: list[str]) -> None:
+    """Creates missing topics now: a consumer only notices a topic created later at its next
+    metadata refresh (up to 5 minutes), which would delay replays."""
+    admin = AdminClient({"bootstrap.servers": bootstrap})
+    existing = set(admin.list_topics(timeout=10).topics)
+    missing = [
+        NewTopic(t, num_partitions=1, replication_factor=1) for t in topics if t not in existing
+    ]
+    if not missing:
+        return
+    for topic, future in admin.create_topics(missing).items():
+        try:
+            future.result()
+        except Exception as exc:
+            print(f"decision-service: topic {topic}: {exc}", file=sys.stderr)
 
 
 def _report(outcomes: Counter[str], latencies: list[int], resolver: Resolver) -> None:

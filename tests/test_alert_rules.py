@@ -34,6 +34,9 @@ FAILED, DONE = (
 )
 GATE = 'lake_alerts_recent{alert="dagster_run_failed:daily_job"}'
 UP = 'up{job="lake-metrics",instance="lake-metrics:9109"}'
+DEAD = 'dead_lettered_total{code="amount_not_positive"}'
+READ = 'transaction_events_consumed_total{topic="pg.public.transactions"}'
+COMMIT = 'lake_table_last_commit_timestamp_seconds{table="cdc_transactions"}'
 SLOW = {B % "1": "0x20", B % "5": "0x20", B % "10": "0+60x20", B % "+Inf": "0+60x20"}
 FAST = {B % "1": "0+60x20", B % "5": "0+60x20", B % "10": "0+60x20", B % "+Inf": "0+60x20"}
 
@@ -61,6 +64,10 @@ SCENARIOS: list[tuple[str, dict[str, str], str, bool]] = [
         "12m",
         False,
     ),
+    ("DlqSpike", {DEAD: "0+1x20", READ: "0+600x20"}, "6m", True),  # 1 in 600: 0.17%
+    ("DlqSpike", {DEAD: "0+1x20", READ: "0+6000x20"}, "6m", False),  # 1 in 6,000: 0.017%
+    ("LakehouseStale", {COMMIT: "0x10"}, "7m", True),  # last commit at 0, 7 min ago
+    ("LakehouseStale", {COMMIT: "0+60x10"}, "7m", False),  # a commit every minute
     ("MetricsTargetDown", {UP: "1 0x6"}, "4m", True),
     ("MetricsTargetDown", {UP: "1x6"}, "4m", False),
 ]
@@ -71,13 +78,18 @@ def rules() -> dict[str, dict[str, Any]]:
     return {r["alert"]: r for g in groups for r in g["rules"]}
 
 
+# Alerts that keep labels of the series that fired them (their expressions do not aggregate)
+KEPT_LABELS = {
+    "LakehouseStale": {"table": "cdc_transactions"},
+    "MetricsTargetDown": {"job": "lake-metrics", "instance": "lake-metrics:9109"},
+}
+
+
 def expected(alert: str, series: dict[str, str]) -> dict[str, Any]:
     rule = rules()[alert]
-    labels = dict(rule.get("labels", {}))
+    labels = {**rule.get("labels", {}), **KEPT_LABELS.get(alert, {})}
     annotations = dict(rule.get("annotations", {}))
-    if alert == "MetricsTargetDown":  # the alert keeps the target's labels; summary is templated
-        labels.update({"job": "lake-metrics", "instance": "lake-metrics:9109", "__name__": "up"})
-        labels.pop("__name__")
+    if alert == "MetricsTargetDown":  # the summary is templated with the target's job
         annotations["summary"] = annotations["summary"].replace("{{ $labels.job }}", "lake-metrics")
     return {"exp_labels": labels, "exp_annotations": annotations}
 
