@@ -30,6 +30,7 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 
+from decision_service import metrics
 from decision_service.context import RULE_NAMES
 from decision_service.customer_features import Ask, customer_values
 from decision_service.decision import Transaction, avro_schema, decide
@@ -152,6 +153,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
+    metrics.serve(int(os.environ.get("METRICS_PORT", "9108")))
     outcomes: Counter[str] = Counter()
     latencies: list[int] = []
     last_report = time.monotonic()
@@ -166,8 +168,10 @@ def main() -> int:
             consumed[part] = max(consumed.get(part, -1), offset)
             txn = _transaction(msg, deserialize)
             if txn is not None:
+                metrics.observe_consumed(msg.timestamp(), txn.commit_ms)
                 resolver.add(Pending(txn, part, offset, now_ms(), now_ms() + wait_ms))
         ready = resolver.resolve(now_ms())
+        metrics.PENDING.set(len(resolver.pending))
         decided_ids = []
         for p, snapshot, customer, features_ms in ready:
             record = decide(p.txn, snapshot, customer, ruleset, consumed_ms=p.consumed_ms,
@@ -178,6 +182,7 @@ def main() -> int:
                 value=serialize(record, SerializationContext(SINK, MessageField.VALUE)),
             )
             decided_ids.append(p.txn.transaction_id)
+            metrics.observe_decision(record, snapshot.written_at_ms if snapshot else None)
             outcomes[f"{record['decision']}:{record['reason']}"] += 1
             latencies.append(record["latency_ms"])
         if decided_ids:

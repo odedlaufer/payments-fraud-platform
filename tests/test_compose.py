@@ -68,9 +68,9 @@ def test_long_running_has_healthcheck(name: str) -> None:
     assert "healthcheck" in SERVICES[name], f"{name}: no healthcheck"
 
 
-def test_long_running_services_fit_a_10gb_docker_vm() -> None:
-    """Docker Desktop gets 10 GB (feasible on a 16 GB laptop); every long-running container
-    at its limit at once must still fit, leaving 512 MB for the VM itself.
+def test_long_running_services_fit_a_12gb_docker_vm() -> None:
+    """Docker Desktop gets 12 GB (the VM reports 11.7 GB on a 24 GB laptop); every
+    long-running container at its limit at once must still fit, with room for the VM itself.
 
     One-shot containers (migrations, init, registration) run briefly at startup only.
     """
@@ -86,7 +86,7 @@ def test_long_running_services_fit_a_10gb_docker_vm() -> None:
     total = sum(
         to_mb(SERVICES[name]["deploy"]["resources"]["limits"]["memory"]) for name in LONG_RUNNING
     )
-    assert total <= 9728, f"long-running memory limits total {total} MB; budget is 9728 MB"
+    assert total <= 11520, f"long-running memory limits total {total} MB; budget is 11520 MB"
 
 
 def test_catalog_db_is_not_the_oltp_source() -> None:

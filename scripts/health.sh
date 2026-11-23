@@ -140,6 +140,20 @@ if has_profile stream; then
   wait_for "decision-service" service_healthy decision-service
 fi
 
+# Every Prometheus scrape target up: metrics actually flow, not just containers running.
+prom_targets_up() {
+  curl -fsS --max-time 3 "http://localhost:${PROMETHEUS_PORT}/api/v1/targets" | python3 -c '
+import json, sys
+targets = json.load(sys.stdin)["data"]["activeTargets"]
+down = [t["labels"]["job"] for t in targets if t["health"] != "up"]
+sys.exit(0 if targets and not down else 1)'
+}
+
+if has_profile obs; then
+  wait_for "prometheus" http_ok "http://localhost:${PROMETHEUS_PORT}/-/ready"
+  wait_for "grafana" http_ok "http://localhost:${GRAFANA_PORT}/api/health"
+  wait_for "prometheus-targets" prom_targets_up
+fi
 if (( FAILED )); then
   echo "Unhealthy. Inspect with: make ps / make logs"
   exit 1

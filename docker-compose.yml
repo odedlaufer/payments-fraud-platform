@@ -589,6 +589,7 @@ services:
       SCHEMA_REGISTRY_URL: http://redpanda:8081
       REDIS_URL: redis://redis:6379/0
       FEATURE_WAIT_MS: "3000"
+      METRICS_PORT: "9108"  # Prometheus: decision latency, CDC lag, feature age
     healthcheck:
       test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/decision-service.alive) )) -lt 30"]
       interval: 10s
@@ -607,7 +608,81 @@ services:
         limits:
           memory: 96m
 
+  # ---- obs profile: Prometheus, Grafana, lakehouse metrics (OBS-1, PRD section 7) ----
+  prometheus:
+    <<: *restart
+    image: prom/prometheus:v3.5.0
+    profiles: [obs]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=8d  # the PRD's 7-day SLO run fits
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9095}:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  grafana:
+    <<: *restart
+    image: grafana/grafana:12.1.0
+    profiles: [obs]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/platform-slos.json
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3030}:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  lake-metrics:
+    <<: *restart
+    build: ./observability/lake_metrics
+    image: payments-fraud-platform/lake-metrics:0.1.0
+    profiles: [obs]
+    environment:
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+      METRICS_PORT: "9109"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9109/metrics')"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+
 volumes:
+  prometheus_data:
+  grafana_data:
   pg_data:
   redpanda_data:
   seaweedfs_data:
