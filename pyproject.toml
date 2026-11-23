@@ -63,6 +63,7 @@ known-first-party = [
     "publish_training_set",
     "promote_rules",
     "lake_refs",
+    "dlq_replay",
     "iceberg_maintenance",]
 
 [tool.mypy]

@@ -29,9 +29,19 @@ FEATURE_AGE = Histogram(
 )
 DECISIONS = Counter("decisions", "Decisions by outcome", ["decision", "reason"])
 PENDING = Gauge("decision_pending_transactions", "Transactions waiting for their features")
+CONSUMED = Counter("transaction_events_consumed", "Change events read, by topic", ["topic"])
+DEAD_LETTERED = Counter(
+    "dead_lettered", "Events sent to dlq.decision-service, by code (DQ-01, DQ-03)", ["code"]
+)
 
 
-def serve(port: int) -> None:
+def serve(port: int, topics: tuple[str, ...] = (), codes: tuple[str, ...] = ()) -> None:
+    """Starts the endpoint with every known label already at 0: a labelled counter that first
+    appears at 20 has no visible increase, so rate() and the DlqSpike alert would miss it."""
+    for topic in topics:
+        CONSUMED.labels(topic=topic)
+    for code in codes:
+        DEAD_LETTERED.labels(code=code)
     start_http_server(port)
 
 

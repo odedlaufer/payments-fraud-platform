@@ -78,6 +78,7 @@ REQUIRED_FILES = [
     "scripts/publish_training_set.py",
     "scripts/promote_rules.py",
     "scripts/lake_refs.py",
+    "scripts/dlq_replay.py",
     "scripts/iceberg_maintenance.py",
     "rules/live.env",
     "rules/rules_v1.yml",
