@@ -181,6 +181,11 @@ if has_profile obs; then
   wait_for "prometheus-targets" prom_targets_up
   wait_for "alert-rules" prom_rules_loaded
 fi
+if has_profile lineage; then
+  wait_for "marquez-api" http_ok "http://localhost:${MARQUEZ_PORT:-5050}/api/v1/namespaces"
+  wait_for "marquez-web" http_ok "http://localhost:${MARQUEZ_WEB_PORT:-3040}"
+fi
+
 if (( FAILED )); then
   echo "Unhealthy. Inspect with: make ps / make logs"
   exit 1

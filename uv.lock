@@ -1302,6 +1302,60 @@ wheels = [
 ]
 
 [[package]]
+name = "openlineage-dbt"
+version = "1.55.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "openlineage-integration-common" },
+    { name = "tqdm" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/2f/8b6327233740989a491680fad0305c4ca18c84608cd0b65129fab68eae1b/openlineage_dbt-1.55.0-py3-none-any.whl", hash = "sha256:bc411ceb5db7d73b7443e53742d6c47e5f6cc6efcbcac4b7fb26b3fce1b95caa", size = 9287, upload-time = "2026-10-29T15:08:37.602Z" },
+]
+
+[[package]]
+name = "openlineage-integration-common"
+version = "1.55.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "jinja2" },
+    { name = "openlineage-python" },
+    { name = "openlineage-sql" },
+    { name = "pyyaml" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/a0/5d5b3f6521f024f845609e5f8a7eae31297d94c508254bd874ab26b38b8f/openlineage_integration_common-1.55.0-py3-none-any.whl", hash = "sha256:d01614dd3b941fe5812a85c2d04b39e08a28a05fc7a9355603a6a224c75ec305", size = 88660, upload-time = "2026-10-29T15:08:38.768Z" },
+]
+
+[[package]]
+name = "openlineage-python"
+version = "1.55.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx2" },
+    { name = "packaging" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "requests" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/a3/6a2c400405a648fa305651a38b6a588fabf92d852e9d6f655a4c1e6bae6d/openlineage_python-1.55.0-py3-none-any.whl", hash = "sha256:fc26969dc8c379109f148d27ddd6525527ad9e811052c9943f98721f85638bf8", size = 130784, upload-time = "2026-10-29T15:08:39.917Z" },
+]
+
+[[package]]
+name = "openlineage-sql"
+version = "1.55.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/c9/68ec139383e15a5641fa22a4d19ff6443ed7e7b82ba75523159cc1b2e9e6/openlineage_sql-1.55.0.tar.gz", hash = "sha256:51901e5b442409341badb7c1a7c2b3961a6df7a80d7ad70528aef2ff47a6394b", size = 48375, upload-time = "2026-10-29T15:08:45.17Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/e6/cc352f0169400f54ea342994ac4e2fdaa43141bb30c9169862dff8968cc8/openlineage_sql-1.55.0-cp310-abi3-macosx_10_12_universal2.macosx_10_12_x86_64.macosx_11_0_arm64.whl", hash = "sha256:01e50ae3f4fe5e5b45a0d99c96d66184dfd159e94b9ad80fbdb2d7e9796450a6", size = 5737843, upload-time = "2026-10-29T15:08:41.066Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/46/66d7ca2c99d009544ba4eeebea9c9b213b79e11ec2f6efde28fd119528d8/openlineage_sql-1.55.0-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:92fac8ad779d7e2704fac06451af55e4ede4e5ae2267f1c7e58da6e4431c78dd", size = 2857413, upload-time = "2026-10-29T15:08:42.581Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/e6/092d57a888e89209e8922ffd0fe0b9cde01b2bafa8ac2af1475b1ea108f7/openlineage_sql-1.55.0-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:acd36c6f335e071f9903c09103eb9741e632934efc128dac7a0ec2312ce7a371", size = 3057090, upload-time = "2026-10-29T15:08:43.756Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1503,6 +1557,7 @@ dependencies = [
     { name = "dagster" },
     { name = "dagster-dbt" },
     { name = "dagster-webserver" },
+    { name = "openlineage-dbt" },
     { name = "trino" },
 ]
 
@@ -1511,6 +1566,7 @@ requires-dist = [
     { name = "dagster", specifier = "==1.13.29" },
     { name = "dagster-dbt", specifier = "==0.29.29" },
     { name = "dagster-webserver", specifier = "==1.13.29" },
+    { name = "openlineage-dbt", specifier = "==1.55.0" },
     { name = "trino", specifier = "==0.340.0" },
 ]
 

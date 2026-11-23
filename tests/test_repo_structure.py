@@ -80,6 +80,7 @@ REQUIRED_FILES = [
     "scripts/lake_refs.py",
     "scripts/dlq_replay.py",
     "scripts/gen_contracts.py",
+    "scripts/emit_lineage.py",
     "contracts/agreements.yaml",
     "scripts/iceberg_maintenance.py",
     "rules/live.env",
