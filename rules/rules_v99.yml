@@ -1,0 +1,46 @@
+version: 99
+description: >-
+  rules v1 plus account takeover on customer features (ADR-007): a device first seen in the
+  last 24 hours, a recent change to email, phone or address, and a large amount. Offline
+  estimate (4 simulated days, two seeds): every injected takeover caught, about 0.01% of
+  legitimate traffic added. Candidate: promoted only after a backtest against v1 (FR-BT3).
+
+rules:
+  - id: card_testing
+    description: Many transactions at many merchants within an hour (testing stolen card numbers).
+    condition: txn_count_1h >= 6 and distinct_merchants_1h >= 4
+    action: decline
+    severity: 90
+
+  - id: impossible_travel
+    description: Two in-person purchases further apart than an airliner could fly in between.
+    condition: km_from_last_txn >= 500 and minutes_since_last_txn * 15 < km_from_last_txn
+    action: decline
+    severity: 85
+
+  - id: velocity_burst
+    description: Three or more transactions on the card within a minute.
+    condition: txn_count_1m >= 3
+    action: review
+    severity: 60
+
+  - id: spend_spike
+    description: A large amount far above the card's usual spend.
+    condition: amount >= 1000 and amount_vs_avg_30d >= 30
+    action: review
+    severity: 50
+
+  - id: daily_spend
+    description: Unusually high total spend on the card in a day.
+    condition: txn_amount_sum_24h >= 4000
+    action: review
+    severity: 40
+
+  - id: account_takeover
+    description: >-
+      A new device, a recent profile change and a large purchase: contact details hijacked,
+      then spending from the attacker's device. The amount floor keeps out customers who
+      simply changed email and phone on the same day.
+    condition: new_device_24h and profile_change_24h and amount >= 300
+    action: decline
+    severity: 80
