@@ -81,6 +81,8 @@ REQUIRED_FILES = [
     "scripts/dlq_replay.py",
     "scripts/gen_contracts.py",
     "scripts/emit_lineage.py",
+    ".github/workflows/ci.yml",
+    ".github/workflows/integration.yml",
     "contracts/agreements.yaml",
     "scripts/iceberg_maintenance.py",
     "rules/live.env",
