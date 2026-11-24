@@ -200,8 +200,11 @@ questions.
 - **CI on GitHub:** lint, types and unit tests; the real Postgres, Redpanda and Debezium stack
   on every pull request with change capture reconciled; rule backtests on pull requests; docs
   published on merge.
-- **Decisions and incidents:** [architecture decisions](docs/adr) and
+- **Decisions and incidents:** [architecture decisions](docs/adr), the
+  [decisions log](docs/decisions-log.md) (what is deferred, and why) and
   [incident write-ups](docs/incidents) record what was chosen, what broke and how it was found.
+- **Operations:** the [runbook](docs/runbook.md) holds the recovery procedures, each one run on
+  this stack: replaying dead letters, rebuilding silver, re-snapshotting CDC, rolling back rules.
 
 | Path | Contents |
 | --- | --- |

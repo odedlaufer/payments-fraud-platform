@@ -89,6 +89,8 @@ REQUIRED_FILES = [
     "scripts/slo_run.py",
     "scripts/slo_report.py",
     "scripts/present.py",
+    "docs/runbook.md",
+    "docs/decisions-log.md",
     "contracts/agreements.yaml",
     "scripts/iceberg_maintenance.py",
     "rules/live.env",
