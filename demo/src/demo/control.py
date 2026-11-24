@@ -53,10 +53,11 @@ class Traffic:
         self._interrupt()
 
     def attack(self, pattern: str) -> None:
-        self.pending = pattern
+        # the entry first: the traffic thread may launch the attack the moment it is pending
         self.log.appendleft(
             {"at": datetime.now(UTC).strftime("%H:%M:%S"), "attack": pattern, "status": "queued"}
         )
+        self.pending = pattern
         if self.on:
             self._interrupt()  # start the attack now, not at the end of the chunk
         else:

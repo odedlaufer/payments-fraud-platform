@@ -196,3 +196,13 @@ def test_feature_store_light_with_prometheus_itself(tmp_path: Any) -> None:
         [*argv, "test", "rules", "health.test.yml"], cwd=tmp_path, capture_output=True, text=True
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_an_attack_launched_at_once_is_not_left_queued() -> None:
+    """The log entry exists before the attack is pending, so the traffic thread always finds it."""
+    traffic = Traffic()
+    traffic.on = True  # as if running; no process to interrupt
+    traffic.attack("impossible_travel")
+    assert traffic.pending == "impossible_travel"
+    traffic._mark("impossible_travel", "launched")  # what the traffic loop does next
+    assert traffic.view()["attacks"][0]["status"] == "launched"
