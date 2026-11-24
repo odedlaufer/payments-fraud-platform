@@ -63,7 +63,8 @@ Fraud systems fail on data more often than on models:
 
 ## Results
 
-Measured on a MacBook (Docker with 12 GB) at 20 payments per second. Targets are the PRD's.
+Measured on a MacBook (Docker with 12 GB) at 20 payments per second. Targets are the PRD's;
+the [SLO run report](docs/slo-report.md) has every minute of a seven-simulated-week run.
 
 | Service level | Target | Measured |
 | --- | --- | --- |
@@ -161,11 +162,14 @@ Needs Docker Desktop with 12 GB of memory, [uv](https://docs.astral.sh/uv/) and 
 on a 24 GB MacBook.
 
 ```bash
-make setup    # dependencies, git hooks, .env
-make up       # start the stack and wait until healthy (a few minutes the first time)
-make seed     # customers, cards and merchants
-make demo     # the demo console at http://localhost:8090
+make setup          # once: dependencies, git hooks, .env
+make present        # everything up and the demo console at http://localhost:8090
+make present-stop   # everything down, data kept
 ```
+
+`make present` starts only this project's containers. If other Docker projects are running, it
+lists them with their memory and stops them only if you agree, then offers to start them again
+on `make present-stop`.
 
 | Command | What it does |
 | --- | --- |

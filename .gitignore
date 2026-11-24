@@ -38,3 +38,12 @@ backtester/reports/
 # Dagster run storage, logs and schedules state (instance config dagster.yaml is kept)
 orchestration/dagster_home/*
 !orchestration/dagster_home/dagster.yaml
+
+# SLO runs: the records are evidence (committed), the simulator logs are not
+observability/slo-runs/*.log
+
+# make present: the other projects it stopped, to start them again
+.present-stopped.json
+
+# Private notes kept beside the code, never published (the presenter's runbook)
+docs/private/

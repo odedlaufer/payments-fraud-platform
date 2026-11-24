@@ -59,7 +59,12 @@ def compose(*args: str) -> None:
 def check(*script: str) -> tuple[bool, str]:
     """A project check script: (passed, its last line)."""
     run = sh("uv", "run", "python", *script)
-    lines = [ln for ln in (run.stdout + run.stderr).splitlines() if ln.strip()]
+    # librdkafka's own log lines start with "%": the script's verdict is the last other line
+    lines = [
+        ln
+        for ln in (run.stdout + run.stderr).splitlines()
+        if ln.strip() and not ln.lstrip().startswith("%")
+    ]
     return run.returncode == 0, lines[-1].strip() if lines else ""
 
 
