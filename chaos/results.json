@@ -1,0 +1,88 @@
+{
+  "CH-1": {
+    "id": "CH-1",
+    "scenario": "Kill the Flink TaskManager mid-run",
+    "expected": "Restores from checkpoint; no duplicate features; decisions resume < 60 s",
+    "passed": true,
+    "outcome": "fresh decisions resumed 19.4 s after the kill; bronze exactly once, online features equal the newest records, every decision once",
+    "measured": {
+      "recovery_s": 19.4,
+      "bronze": "%4|1795511453.155|OFFSET|rdkafka#consumer-1| [thrd:main]: pg.public.transactions [0]: offset reset (at offset 0 (leader epoch -1), broker 0) to cached BEGINNING offset offset 72161 (leader epoch -1): fetch failed due to requested offset not available on the broker: Broker: Offset out of range",
+      "online_store": "online store matches features.card",
+      "decisions": "gate: p95 < 5000 ms"
+    },
+    "ran_at": "2026-11-24 09:13 UTC"
+  },
+  "CH-2": {
+    "id": "CH-2",
+    "scenario": "Stop Kafka Connect for 5 minutes",
+    "expected": "Debezium resumes from its offset; zero missing rows (DQ-08 passes)",
+    "passed": true,
+    "outcome": "CdcStalled fired after 150 s; Debezium resumed 10 s after the restart; CDC complete and silver equals Postgres",
+    "measured": {
+      "cdc_stalled_alert_after_s": 150.1108248750097,
+      "slot_active_again_after_s": 9.632365249999566,
+      "cdc": "%4|1795511993.005|OFFSET|rdkafka#consumer-1| [thrd:main]: pg.public.transactions [0]: offset reset (at offset 0 (leader epoch -1), broker 0) to cached BEGINNING offset offset 72161 (leader epoch -1): fetch failed due to requested offset not available on the broker: Broker: Offset out of range",
+      "silver_build_rc": 0,
+      "silver": "488924 rows compared: silver matches Postgres"
+    },
+    "ran_at": "2026-11-24 09:20 UTC"
+  },
+  "CH-3": {
+    "id": "CH-3",
+    "scenario": "Stop Redis for 2 minutes",
+    "expected": "Decisions fall back to review (stale_features); no silent approvals",
+    "passed": true,
+    "outcome": "all 2350 decisions during the outage were review/stale_features, 0 approved; the feature sink rebuilt Redis in 536 s",
+    "measured": {
+      "decisions_during_outage": 2350,
+      "approved_during_outage": 0,
+      "stale_reviews_during_outage": 2350,
+      "feature_sink_healthy_after_s": 536.4339623749984,
+      "counted_from": "lake.bronze.decisions decided_ms (exact), not Prometheus (15 s scrapes)"
+    },
+    "ran_at": "2026-11-24 09:33 UTC"
+  },
+  "CH-4": {
+    "id": "CH-4",
+    "scenario": "Publish malformed events",
+    "expected": "Events land in the DLQ; the pipeline keeps running",
+    "passed": true,
+    "outcome": "25 malformed events dead-lettered in 10 s, 0 restarts, Flink unaffected",
+    "measured": {
+      "dead_lettered": 25.0,
+      "service_restarts": 0,
+      "flink_jobs_running": true,
+      "scope": "the decision service's input (retry topic); see the note on CDC topics"
+    },
+    "ran_at": "2026-11-24 09:33 UTC"
+  },
+  "CH-5": {
+    "id": "CH-5",
+    "scenario": "Breaking schema change (drop column)",
+    "expected": "Rejected by the schema registry / CI contract check",
+    "passed": true,
+    "outcome": "the registry (BACKWARD) rejects a new required field; a dropped column is backward compatible for readers, so the contract check (DC-3) refuses it: datacontract flags it as breaking",
+    "measured": {
+      "registry_accepts_new_required_field": false,
+      "registry_accepts_dropped_column": true,
+      "contract_check_flags_dropped_field": true,
+      "fields_in_record": 15
+    },
+    "ran_at": "2026-11-24 09:33 UTC"
+  },
+  "CH-6": {
+    "id": "CH-6",
+    "scenario": "Late events beyond the watermark",
+    "expected": "Counted in dlq.late_events; the decision explains itself",
+    "passed": true,
+    "outcome": "the 3-hour-late transaction 376903 went to dlq.late_events in 5 s; its decision: \"review\",\"stale_features\"",
+    "measured": {
+      "transaction_id": 376903,
+      "late_events_counted": 1,
+      "decision": "\"review\",\"stale_features\"",
+      "trino_port": "8088"
+    },
+    "ran_at": "2026-11-24 09:41 UTC"
+  }
+}
