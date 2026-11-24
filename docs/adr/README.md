@@ -10,3 +10,6 @@ One file per decision, numbered in order. An accepted ADR is changed only by a n
 | [ADR-006](ADR-006-scd2-from-cdc-log.md) | SCD2 history is rebuilt from the CDC log, not dbt snapshots | Accepted |
 | [ADR-007](ADR-007-customer-features-on-demand.md) | Customer features are computed on demand from online state | Accepted |
 | [ADR-008](ADR-008-simulated-label-time.md) | Label times are simulated, like every other event time | Accepted |
+
+Requirements deferred or met differently, and the PRD's open questions, are in the
+[decisions log](../decisions-log.md).
