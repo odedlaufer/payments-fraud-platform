@@ -1,0 +1,57 @@
+# Every pull request and every push to main: the same checks as `make check`.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, types, unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0  # the DC-3 test compares contracts with main
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: Python and dependencies (from uv.lock)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Settings and the dbt manifest (no database needed)
+        run: |
+          cp .env.example .env
+          cd dbt && uv run dbt parse --profiles-dir .
+
+      - name: promtool for the alert-rule tests (Prometheus 3.5.0, checksum pinned)
+        run: |
+          curl -fsSL -o /tmp/prometheus.tgz \
+            https://github.com/prometheus/prometheus/releases/download/v3.5.0/prometheus-3.5.0.linux-amd64.tar.gz
+          echo "e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a  /tmp/prometheus.tgz" | sha256sum -c -
+          mkdir -p "$HOME/bin"
+          tar -xzf /tmp/prometheus.tgz -C "$HOME/bin" --strip-components=1 prometheus-3.5.0.linux-amd64/promtool
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Lint (pre-commit hooks, gitleaks included)
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+      - name: Types
+        run: make typecheck
+
+      - name: Unit tests
+        run: make test

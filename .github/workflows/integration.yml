@@ -1,0 +1,75 @@
+# Every pull request: the core stack (Postgres, Redpanda, Debezium) on the runner, then CDC
+# end to end: seed, simulate, and every change event checked against Postgres.
+name: integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cdc:
+    name: CDC end to end (core stack)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6.1.0
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: Python and dependencies (from uv.lock)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Settings for the core profile only
+        run: |
+          cp .env.example .env
+          sed -i 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=core/' .env
+
+      - name: Start the core stack and wait until healthy
+        run: make up
+
+      - name: Seed reference data and simulate 1,000 payments
+        run: |
+          make seed
+          uv run simulator run --fast --max-transactions 1000
+
+      - name: Every change in Postgres arrived on its CDC topic, key by key
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if uv run python scripts/cdc_reconcile.py; then exit 0; fi
+            echo "Debezium still catching up ($attempt); retrying in 15 s"; sleep 15
+          done
+          exit 1
+
+      - name: Integration tests that need only the core stack
+        run: >
+          uv run pytest -m integration
+          tests/integration/test_oltp_schema.py tests/integration/test_cdc.py
+          tests/integration/test_simulator_seed.py tests/integration/test_simulator_run.py
+          tests/integration/test_bronze_schema.py
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 300 > compose-logs.txt
+
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
