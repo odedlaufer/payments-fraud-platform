@@ -68,6 +68,7 @@ known-first-party = [
     "dlq_replay",
     "gen_contracts",
     "emit_lineage",
+    "export_backtest_fixture",
     "iceberg_maintenance",]
 
 [tool.mypy]

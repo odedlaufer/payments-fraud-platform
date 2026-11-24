@@ -4,6 +4,7 @@
     uv run backtest --rules rules/rules_v2.yml --snapshot-id 8254010497186583662
     uv run backtest --rules rules/rules_v2.yml --from 2026-01-10 --to 2026-01-20
     uv run backtest --rules rules/rules_v1.yml --rules rules/rules_v2.yml   # side by side
+    uv run backtest --fixture tests/fixtures/training_set.parquet --rules ...  # no lake (CI)
 
 Reads the training set through DuckDB from the lake at its Iceberg snapshot, evaluates the
 rules with the decision service's own engine and context, prints and writes a Markdown
@@ -92,23 +93,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from", dest="window_from", help="first event day, YYYY-MM-DD")
     parser.add_argument("--to", dest="window_to", help="last event day, YYYY-MM-DD")
     parser.add_argument("--no-store", action="store_true", help="do not append to rule_backtests")
+    parser.add_argument(
+        "--fixture",
+        type=Path,
+        help="a recorded training set (Parquet) instead of the lake; implies --no-store",
+    )
     args = parser.parse_args(argv)
 
-    env = load_env()
-    con = connect(env)
-    sets = published(con)
-    if not sets:
-        print("no published training sets: run make publish-training-set first")
-        return 1
-    chosen = (
-        next((s for s in sets if s["snapshot_id"] == args.snapshot_id), None)
-        if args.snapshot_id
-        else sets[0]
-    )
-    if chosen is None:
-        print(f"snapshot {args.snapshot_id} is not a published training set")
-        return 1
-    source = snapshot_source(chosen["snapshot_id"])
+    chosen: dict[str, Any] | None
+    if args.fixture:
+        import duckdb
+
+        con = duckdb.connect()
+        con.execute("SET TimeZone = 'UTC'")
+        source = f"read_parquet('{args.fixture}')"
+        cutoff = con.execute(f"select max(cutoff) from {source}").fetchone()[0]  # type: ignore[index]
+        chosen = {"snapshot_id": f"fixture {args.fixture.name}", "cutoff": cutoff}
+        env: dict[str, str] = {}
+        args.no_store = True
+    else:
+        env = load_env()
+        con = connect(env)
+        sets = published(con)
+        if not sets:
+            print("no published training sets: run make publish-training-set first")
+            return 1
+        found = next((s for s in sets if s["snapshot_id"] == args.snapshot_id), None)
+        chosen = found if args.snapshot_id else sets[0]
+        if chosen is None:
+            print(f"snapshot {args.snapshot_id} is not a published training set")
+            return 1
+        source = snapshot_source(chosen["snapshot_id"])
     columns = [*SNAPSHOT_FEATURES, *TRANSACTION_FIELDS]
     rows = training_rows(con, source, chosen["cutoff"], columns, (args.window_from, args.window_to))
     cutoff = chosen["cutoff"].isoformat(sep=" ")
