@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payments fraud platform: documentation</title>
+<style>
+:root { --page: #EDF0F2; --ink: #1F2A33; --muted: #5B6873; --rule: #CBD2D8; --panel: #2B3640; --track: #E9E4D8; --go: #3E9B4F; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.55 "Avenir Next", "Avenir", "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: 32px; margin: 0 0 6px; letter-spacing: -0.01em; }
+p.lead { color: var(--muted); margin: 0 0 28px; max-width: 64ch; }
+.primary { display: block; background: var(--panel); color: var(--track); text-decoration: none; border-radius: 10px; padding: 20px 22px; margin-bottom: 28px; }
+.primary strong { display: block; font-size: 20px; }
+.primary span { opacity: 0.85; }
+.primary:focus-visible, a:focus-visible { outline: 3px solid #E0A526; outline-offset: 2px; }
+h2 { font-size: 19px; margin: 0 0 8px; }
+ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+li { border-bottom: 1px solid var(--rule); padding: 10px 0; }
+li a { color: var(--ink); font-weight: 600; }
+li span { display: block; color: var(--muted); font-size: 15px; }
+footer { margin-top: 32px; color: var(--muted); font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Payments fraud platform</h1>
+  <p class="lead">Change data capture from Postgres to real-time fraud decisions in about a second, and an Iceberg
+    lakehouse with history, point-in-time training sets and proof that online and offline features agree.</p>
+
+  <a class="primary" href="dbt/index.html">
+    <strong>Data models and lineage</strong>
+    <span>Every dbt model and column, from the raw change events to the training sets, with the lineage graph.</span>
+  </a>
+
+  <h2>In the repository</h2>
+  <ul>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform#readme">Overview and how to run it</a>
+      <span>Architecture, results and the one-command demo.</span></li>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform/blob/main/docs/feature-catalogue.md">Feature catalogue</a>
+      <span>Each real-time feature, defined once and computed identically online and offline.</span></li>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform/blob/main/docs/chaos.md">Failure tests</a>
+      <span>Six injected failures during live traffic, with measured recovery.</span></li>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform/blob/main/docs/demo.md">Presenting it</a>
+      <span>The demo console and a ten-minute script.</span></li>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform/tree/main/docs/adr">Design decisions</a>
+      <span>Why each tool and approach was chosen, and what was traded off.</span></li>
+    <li><a href="https://github.com/odedlaufer/payments-fraud-platform/tree/main/docs/incidents">Incident write-ups</a>
+      <span>What broke during the build, how it was found and fixed.</span></li>
+  </ul>
+
+  <footer>Published from main by GitHub Actions. All data is synthetic.</footer>
+</main>
+</body>
+</html>

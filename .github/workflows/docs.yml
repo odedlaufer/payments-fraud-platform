@@ -1,0 +1,61 @@
+# Every merge to main: dbt docs (models, columns, lineage graph) and a landing page on
+# GitHub Pages. One-time setting: Settings > Pages > Source: GitHub Actions.
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.1.0
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: Python and dependencies (from uv.lock)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: dbt docs, generated without a database
+        run: |
+          cp .env.example .env
+          cd dbt && uv run dbt docs generate --profiles-dir . --no-compile --empty-catalog
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site/dbt
+          cp dbt/target/index.html dbt/target/manifest.json dbt/target/catalog.json site/dbt/
+          cp docs/site/index.html site/index.html
+
+      - uses: actions/configure-pages@v5.0.0
+
+      - uses: actions/upload-pages-artifact@v4.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4.0.5

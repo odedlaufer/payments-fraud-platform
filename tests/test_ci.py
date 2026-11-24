@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -44,3 +44,26 @@ def test_every_integration_test_named_in_ci_exists() -> None:
 
 def test_integration_runs_the_core_profile_only() -> None:
     assert "COMPOSE_PROFILES=core/" in runs("integration.yml")
+
+
+def test_rules_ci_reads_the_fixture_the_export_writes() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "export", ROOT / "scripts/export_backtest_fixture.py"
+    )
+    assert spec and spec.loader
+    export = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(export)
+    assert str(export.OUT.relative_to(ROOT)) in runs("rules.yml")
+    triggers = cast(dict[Any, Any], workflow("rules.yml"))[True]  # YAML 1.1 reads "on" as True
+    assert triggers["pull_request"]["paths"] == ["rules/**"]
+
+
+def test_docs_publishes_dbt_docs_and_the_landing_page() -> None:
+    script = runs("docs.yml")
+    assert "--no-compile --empty-catalog" in script  # no database in CI
+    assert (
+        "cp docs/site/index.html site/index.html" in script
+        and (ROOT / "docs/site/index.html").exists()
+    )

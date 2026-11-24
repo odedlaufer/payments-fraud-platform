@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance orchestrate dlq-replay contracts contracts-check lineage chaos demo
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance orchestrate dlq-replay contracts contracts-check lineage chaos demo backtest-fixture
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -229,3 +229,6 @@ demo: ## Demo console at http://localhost:8090: live decisions, attacks, failure
 	@echo "Demo console: http://localhost:8090   presenter notes: docs/demo.md   stop: Ctrl-C"
 	@(sleep 2; uv run python -m webbrowser -t http://localhost:8090 > /dev/null 2>&1) &
 	uv run uvicorn demo.app:app --host 127.0.0.1 --port 8090 --log-level warning
+
+backtest-fixture: ## Record a small training set for CI's rule backtests (tests/fixtures/training_set.parquet)
+	uv run python scripts/export_backtest_fixture.py

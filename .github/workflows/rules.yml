@@ -1,0 +1,75 @@
+# Pull requests that touch rules/: backtest the live rules on main against this change, on a
+# recorded training set (tests/fixtures/training_set.parquet), and comment the comparison.
+name: rules
+
+on:
+  pull_request:
+    paths: ["rules/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: rules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: backtest the rule change
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: Python and dependencies (from uv.lock)
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Backtest live (on main) against this change
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          live_of() { sed -n 's|^RULES_FILE=/app/rules/||p'; }
+          base_live=$(git show "$BASE:rules/live.env" | live_of)
+          mkdir -p /tmp/base
+          git show "$BASE:rules/$base_live" > "/tmp/base/$base_live"  # main's copy, same name as its version
+          args=(--rules "/tmp/base/$base_live")
+          candidates=("rules/$(live_of < rules/live.env)")  # a promotion changes live.env
+          while IFS= read -r f; do candidates+=("$f"); done \
+            < <(git diff --name-only "$BASE"...HEAD -- 'rules/rules_v*.yml')
+          declare -A seen
+          for f in "${candidates[@]}"; do
+            if [ -f "$f" ] && [ -z "${seen[$f]:-}" ] && ! cmp -s "$f" "/tmp/base/$base_live"; then
+              args+=(--rules "$f"); seen[$f]=1
+            fi
+          done
+          if [ ${#args[@]} -eq 2 ]; then
+            echo "No rules file differs from the live rules on main: nothing to compare." > /tmp/comment.md
+            exit 0
+          fi
+          rm -f backtester/reports/compare_*.md  # only this run's comparison remains
+          uv run backtest --fixture tests/fixtures/training_set.parquet "${args[@]}" > /tmp/backtest.txt
+          report=$(find backtester/reports -name 'compare_*.md' | head -1)
+          {
+            echo "### Backtest of this rule change"
+            echo
+            echo "Live rules on \`${GITHUB_BASE_REF}\` (\`$base_live\`) against this pull request,"
+            echo "on the recorded training set in \`tests/fixtures/training_set.parquet\`."
+            echo
+            cat "$report"
+          } > /tmp/comment.md
+
+      - name: Comment on the pull request (updated on each push)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR" --body-file /tmp/comment.md --edit-last || gh pr comment "$PR" --body-file /tmp/comment.md

@@ -98,3 +98,41 @@ def test_compares_versions_side_by_side(
     assert takeover.split("|")[2].strip() == "-"  # not a v1 rule
     assert (tmp_path / "compare_rules_v1_vs_rules_v2_111.md").exists()
     assert (tmp_path / "rules_v1_111.md").exists() and (tmp_path / "rules_v2_111.md").exists()
+
+
+def test_a_recorded_fixture_needs_no_lake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """CI's rules.yml: backtest from a Parquet training set, nothing stored."""
+
+    def column(c: str) -> str:
+        kind = "varchar" if c == "channel" else "double"
+        value = "9" if c == "txn_count_1h" else "null"
+        return f"cast({value} as {kind}) as {c}"
+
+    features = ", ".join(
+        column(c) for c in [*SNAPSHOT_FEATURES, *TRANSACTION_FIELDS] if c != "amount"
+    )
+    row = (
+        "1::bigint as transaction_id, timestamptz '2026-01-10 00:00:00+00' as event_ts, "
+        "1 as label, timestamptz '2026-03-30 00:00:00+00' as cutoff, "
+        "4000.00::decimal(12,2) as amount"
+    )
+    fixture = tmp_path / "training_set.parquet"
+    duckdb.connect().execute(f"copy (select {row}, {features}) to '{fixture}' (format parquet)")
+    monkeypatch.setattr(cli, "REPORTS", tmp_path)
+    monkeypatch.setattr(cli, "ROOT", tmp_path.parent)
+    monkeypatch.setattr(cli, "store", lambda *a: pytest.fail("a fixture run must not store"))
+    rules = [
+        "--rules",
+        str(ROOT / "rules/rules_v1.yml"),
+        "--rules",
+        str(ROOT / "rules/rules_v2.yml"),
+    ]
+    assert cli.main(["--fixture", str(fixture), *rules]) == 0
+    out = capsys.readouterr().out
+    assert (
+        "snapshot fixture training_set.parquet" in out
+        and "transactions:** 1, of which **1**" in out
+    )
+    assert (tmp_path / "compare_rules_v1_vs_rules_v2_fixture training_set.parquet.md").exists()
