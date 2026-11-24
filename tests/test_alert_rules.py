@@ -146,3 +146,9 @@ def test_alert_rules_with_promtool(tmp_path: Path) -> None:
         [*argv, "test", "rules", "alerts.test.yml"], cwd=tmp_path, capture_output=True, text=True
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_lakehouse_freshness_covers_every_bronze_table() -> None:
+    """bronze.decisions once went quiet unnoticed: the alert watched only cdc_transactions."""
+    expr = rules()["LakehouseStale"]["expr"]
+    assert "lake_table_last_commit_timestamp_seconds" in expr and "table=" not in expr

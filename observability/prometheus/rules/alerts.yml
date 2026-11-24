@@ -68,11 +68,12 @@ groups:
           action: "make dlq-replay ARGS=--dry-run shows the codes; fix the cause, then make dlq-replay"
 
       - alert: LakehouseStale
-        expr: time() - lake_table_last_commit_timestamp_seconds{table="cdc_transactions"} > 300
+        # every bronze table: Flink commits on each checkpoint, even with no new data
+        expr: time() - lake_table_last_commit_timestamp_seconds > 300
         for: 1m
         labels: {severity: warning}
         annotations:
-          summary: No Iceberg commit to bronze transactions in 5 minutes (DQ-07)
+          summary: A bronze table has had no Iceberg commit in 5 minutes (DQ-07)
           action: check the bronze-cdc Flink job and its checkpoints (http://localhost:8081)
 
       - alert: MetricsTargetDown
