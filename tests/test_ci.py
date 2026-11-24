@@ -63,6 +63,8 @@ def test_rules_ci_reads_the_fixture_the_export_writes() -> None:
 def test_docs_publishes_dbt_docs_and_the_landing_page() -> None:
     script = runs("docs.yml")
     assert "--no-compile --empty-catalog" in script  # no database in CI
+    # on a fresh checkout, docs generate --no-compile writes no manifest.json: parse first
+    assert script.index("dbt parse") < script.index("dbt docs generate")
     assert (
         "cp docs/site/index.html site/index.html" in script
         and (ROOT / "docs/site/index.html").exists()

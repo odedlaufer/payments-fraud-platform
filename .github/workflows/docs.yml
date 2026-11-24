@@ -36,7 +36,9 @@ jobs:
       - name: dbt docs, generated without a database
         run: |
           cp .env.example .env
-          cd dbt && uv run dbt docs generate --profiles-dir . --no-compile --empty-catalog
+          cd dbt
+          uv run dbt parse --profiles-dir .  # writes manifest.json; docs generate --no-compile does not
+          uv run dbt docs generate --profiles-dir . --no-compile --empty-catalog
 
       - name: Assemble the site
         run: |
