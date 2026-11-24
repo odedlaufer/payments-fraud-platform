@@ -1,0 +1,18 @@
+[project]
+name = "payments-demo"
+version = "0.1.0"
+description = "Demo console: live decisions, attacks, failures and recovery, auto-play story"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.162.4",
+    "uvicorn==0.54.0",
+    "confluent-kafka[avro,schemaregistry]==2.16.0",
+    "psycopg[binary]==3.3.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "demo"

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payments fraud platform: live console</title>
+<style>
+:root {
+  --page: #EDF0F2; --ink: #1F2A33; --muted: #5B6873; --rule: #CBD2D8; --surface: #F8FAFB;
+  --panel: #2B3640; --track: #E9E4D8; --track-dim: #6F7B85;
+  --go: #3E9B4F; --wait: #E0A526; --stop: #CF4A3F; --off: #8A949C;
+  --approve: #2F7D3F; --review: #9A6B00; --decline: #B23A31;
+  --font: "Avenir Next", "Avenir", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-cond: "Avenir Next Condensed", "Avenir Next", "Arial Narrow", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.5 var(--font); font-variant-numeric: tabular-nums; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 40px; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: 26px; }
+h2 { font-size: 19px; margin-bottom: 10px; }
+button { font: 600 15px/1 var(--font); border-radius: 6px; border: 1px solid var(--ink); background: var(--surface);
+  color: var(--ink); padding: 10px 14px; cursor: pointer; }
+button.primary { background: var(--ink); color: var(--surface); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--wait); outline-offset: 2px; }
+a { color: var(--ink); }
+
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+header.top p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.story { border-left: 5px solid var(--wait); background: var(--surface); padding: 14px 18px; margin-bottom: 16px; min-height: 58px; }
+.story h3 { font-size: 17px; }
+.story p { margin: 4px 0 0; max-width: 78ch; }
+.story .result { color: var(--muted); font-size: 15px; }
+.story ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+
+.signalbox { background: var(--panel); border-radius: 10px; padding: 14px 16px 6px; margin-bottom: 18px; }
+.signalbox .caption { color: var(--track); font-size: 14px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.signalbox .caption span { opacity: 0.8; }
+svg.track { width: 100%; height: auto; display: block; }
+.line { stroke: var(--track-dim); stroke-width: 3; fill: none; }
+.flow { stroke: var(--track); stroke-width: 3; fill: none; stroke-dasharray: 3 15; }
+.running .flow { animation: move 1.4s linear infinite; }
+@keyframes move { to { stroke-dashoffset: -18; } }
+@media (prefers-reduced-motion: reduce) { .running .flow { animation: none; } }
+.station rect { fill: #33414C; stroke: var(--track-dim); stroke-width: 1.5; }
+.station text { fill: var(--track); font: 600 13px var(--font-cond); }
+.station text.state { font: 500 11px var(--font); fill: #C9C3B4; }
+.lamp { stroke: #1E262D; stroke-width: 2; }
+.lamp.ok { fill: var(--go); } .lamp.down { fill: var(--stop); } .lamp.unknown { fill: var(--off); } .lamp.recovering { fill: var(--wait); }
+
+.columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 22px; }
+@media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--rule); padding: 6px 8px; }
+td { border-bottom: 1px solid var(--rule); padding: 6px 8px; vertical-align: top; }
+tr.attack td:first-child { box-shadow: inset 4px 0 0 var(--decline); }
+.feed { max-height: 470px; overflow-y: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
+.outcome { font-weight: 700; }
+.outcome.approve { color: var(--approve); } .outcome.review { color: var(--review); } .outcome.decline { color: var(--decline); }
+.verdict { font-size: 13px; font-weight: 600; }
+.verdict.caught { color: var(--approve); } .verdict.held { color: var(--review); } .verdict.missed { color: var(--decline); }
+.empty { color: var(--muted); padding: 18px 10px; }
+
+.control { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px; margin-bottom: 16px; }
+.control .buttons { display: grid; gap: 8px; margin-bottom: 10px; }
+.control .buttons button { text-align: left; }
+.status-line { font-size: 14px; color: var(--muted); min-height: 21px; }
+.status-line strong { color: var(--ink); }
+
+.slos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 22px; }
+.slo { border-top: 3px solid var(--off); padding-top: 6px; }
+.slo.met { border-color: var(--go); } .slo.missed { border-color: var(--stop); }
+.slo .value { font-size: 24px; font-weight: 600; }
+.slo .name, .slo .target { font-size: 13px; color: var(--muted); }
+footer { margin-top: 26px; font-size: 14px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+.error { color: var(--decline); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>Payments fraud platform</h1>
+      <p>Change data capture to real-time fraud decisions and a lakehouse, running live on this laptop.</p>
+    </div>
+    <div class="actions">
+      <button class="primary" id="story-btn" type="button">Play the story</button>
+      <button id="traffic-btn" type="button">Start traffic</button>
+    </div>
+  </header>
+
+  <section class="story" id="story" aria-live="polite">
+    <h3 id="story-title">Ready</h3>
+    <p id="story-text">Play the story for an eight-minute tour, or start traffic and use the controls yourself.</p>
+    <p class="result" id="story-result"></p>
+    <ol id="story-results"></ol>
+  </section>
+
+  <section class="signalbox" aria-label="Pipeline status">
+    <div class="caption"><strong>Pipeline</strong><span>Green running, amber recovering, red down, grey no data</span></div>
+    <svg class="track" id="track" viewBox="0 0 1000 250" role="img" aria-label="Pipeline diagram with a status light per component">
+      <path class="line" d="M95 60 H880 M375 60 V180 H880 M820 60 V120 H680 V180"/>
+      <path class="flow" d="M95 60 H880 M375 60 V180 H880 M820 60 V120 H680 V180"/>
+      <g id="stations"></g>
+    </svg>
+  </section>
+
+  <div class="columns">
+    <section aria-labelledby="feed-title">
+      <h2 id="feed-title">Live decisions</h2>
+      <div class="feed">
+        <table>
+          <thead><tr><th>Time</th><th>Payment</th><th>Amount</th><th>Decision</th><th>Why</th><th>Latency</th></tr></thead>
+          <tbody id="feed"><tr><td colspan="6" class="empty">No decisions yet. Start traffic to see payments decided as they happen.</td></tr></tbody>
+        </table>
+      </div>
+      <p class="error" id="feed-error"></p>
+    </section>
+
+    <aside>
+      <section class="control" aria-labelledby="attacks-title">
+        <h2 id="attacks-title">Launch an attack</h2>
+        <div class="buttons" id="attack-buttons"></div>
+        <table>
+          <thead><tr><th>Attack</th><th>Caught</th><th>Held</th><th>Missed</th></tr></thead>
+          <tbody id="scoreboard"><tr><td colspan="4" class="empty">No attacks yet.</td></tr></tbody>
+        </table>
+        <p class="status-line">Caught: a rule declined or reviewed it. Held: reviewed because its features
+          were not ready. Missed: approved, like the first tries of a burst before it adds up.</p>
+      </section>
+      <section class="control" aria-labelledby="failures-title">
+        <h2 id="failures-title">Break something</h2>
+        <div class="buttons" id="failure-buttons"></div>
+        <p class="status-line" id="failure-status" aria-live="polite">Nothing broken.</p>
+      </section>
+    </aside>
+  </div>
+
+  <section aria-labelledby="slo-title">
+    <h2 id="slo-title" style="margin-top: 22px">Service levels</h2>
+    <div class="slos" id="slos"></div>
+  </section>
+
+  <footer id="links"></footer>
+</main>
+
+<script>
+const STATIONS = [
+  { key: "postgres", name: "Postgres", sub: "payments app", x: 95, y: 60 },
+  { key: "debezium", name: "Debezium", sub: "change capture", x: 235, y: 60 },
+  { key: "redpanda", name: "Redpanda", sub: "event stream", x: 375, y: 60 },
+  { key: "flink_features", name: "Flink", sub: "card features", x: 515, y: 60 },
+  { key: "feature_store", name: "Redis", sub: "feature store", x: 665, y: 60 },
+  { key: "decision_service", name: "Decision service", sub: "rules v2", x: 820, y: 60 },
+  { key: "flink_bronze", name: "Flink", sub: "to the lake", x: 500, y: 180 },
+  { key: "lakehouse", name: "Iceberg lakehouse", sub: "bronze to marts", x: 680, y: 180 },
+  { key: "training_sets", name: "Training sets", sub: "dbt and Dagster", x: 880, y: 180 },
+];
+const CHAOS_TARGET = { kill_flink: ["flink_features", "flink_bronze"], pause_features: ["feature_store"], stop_cdc: ["debezium"] };
+const SLOS = [
+  ["decision_p95_s", "Decision latency p95", v => `${v.toFixed(2)} s`, v => v < 5, "target under 5 s"],
+  ["cdc_lag_p95_s", "Change capture lag p95", v => `${v.toFixed(2)} s`, v => v < 2, "target under 2 s"],
+  ["feature_age_p95_s", "Feature freshness p95", v => `${(v * 1000).toFixed(0)} ms`, v => v < 5, "target under 5 s"],
+  ["lake_freshness_s", "Lakehouse freshness", v => `${(v / 60).toFixed(1)} min`, v => v < 300, "target under 5 min"],
+  ["parity", "Online and offline features agree", v => `${(v * 100).toFixed(3)} %`, v => v >= 0.999, "target 99.9 %"],
+  ["decisions_per_min", "Decisions a minute", v => v.toFixed(0), null, "live traffic"],
+  ["firing_alerts", "Alerts firing", v => v.toFixed(0), v => v === 0, "target none"],
+];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const post = path => fetch(path, { method: "POST" }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail)));
+let state = null;
+
+function drawStations() {
+  $("stations").innerHTML = STATIONS.map(s => `
+    <g class="station" transform="translate(${s.x - 62}, ${s.y - 27})">
+      <rect width="124" height="54" rx="6"/>
+      <circle class="lamp unknown" id="lamp-${s.key}-${s.x}" cx="16" cy="18" r="8"><title>no data</title></circle>
+      <text x="30" y="23">${esc(s.name)}</text>
+      <text class="state" x="12" y="43">${esc(s.sub)}</text>
+    </g>`).join("");
+}
+
+function render(s) {
+  const recovering = s.chaos && ["injecting", "recovering"].includes(s.chaos.phase) ? CHAOS_TARGET[s.chaos.kind] || [] : [];
+  STATIONS.forEach(st => {
+    const lamp = $(`lamp-${st.key}-${st.x}`);
+    let h = st.key === "training_sets" ? (s.health.lakehouse || "unknown") : (s.health[st.key] || "unknown");
+    if (recovering.includes(st.key)) h = "recovering";
+    lamp.setAttribute("class", `lamp ${h}`);
+    lamp.querySelector("title").textContent = { ok: "running", down: "down", unknown: "no data", recovering: "recovering" }[h];
+  });
+  $("track").classList.toggle("running", s.traffic.on);
+  $("traffic-btn").textContent = s.traffic.on ? "Stop traffic" : "Start traffic";
+
+  const st = s.story;
+  $("story-btn").textContent = st.running ? "Stop the story" : "Play the story";
+  if (st.running) {
+    $("story-title").textContent = `Step ${st.index + 1} of ${st.total}: ${st.title}`;
+    $("story-text").textContent = st.narration;
+    $("story-result").textContent = st.elapsed_s != null ? `${Math.round(st.elapsed_s)} s into this step` : "";
+  } else if (st.index > 0) {
+    $("story-title").textContent = "The story is finished";
+    $("story-text").textContent = "Traffic keeps running. Launch an attack or break something to explore further.";
+    $("story-result").textContent = "";
+  }
+  $("story-results").innerHTML = (st.results || []).map(r => `<li><strong>${esc(r.title)}:</strong> ${esc(r.result)}</li>`).join("");
+
+  const items = s.feed.items;
+  $("feed").innerHTML = items.length ? items.map(d => `
+    <tr class="${d.attack ? "attack" : ""}">
+      <td>${esc(d.time)}</td>
+      <td>#${esc(d.transaction_id)}<br><span class="status-line">card ${esc(d.card_id)}</span></td>
+      <td>${esc(d.amount ?? "")}<br><span class="status-line">${esc((d.channel || "").replace("_", " "))}</span></td>
+      <td><span class="outcome ${esc(d.decision)}">${esc(d.decision)}</span></td>
+      <td>${d.rules.length ? esc(d.rules.join(", ").replaceAll("_", " ")) : esc(d.reason.replaceAll("_", " "))}
+          ${d.attack ? `<br><span class="verdict ${esc(d.verdict)}">${esc(d.attack.replaceAll("_", " "))} attack, ${esc(d.verdict)}</span>` : ""}</td>
+      <td>${d.latency_ms != null ? (d.latency_ms / 1000).toFixed(2) + " s" : ""}</td>
+    </tr>`).join("") : `<tr><td colspan="6" class="empty">No decisions yet. Start traffic to see payments decided as they happen.</td></tr>`;
+  $("feed-error").textContent = s.feed.error ? `The feed cannot read decisions: ${s.feed.error}` : "";
+
+  const attacks = Object.entries(s.feed.attacks);
+  $("scoreboard").innerHTML = attacks.length ? attacks.map(([p, v]) => `
+    <tr><td>${esc(p.replaceAll("_", " "))}</td><td>${v.caught || 0}</td><td>${v.held || 0}</td><td>${v.missed || 0}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">No attacks yet.</td></tr>`;
+  const launched = Object.fromEntries((s.traffic.attacks || []).map(a => [a.attack, a.status]));
+  document.querySelectorAll("[data-attack]").forEach(b => {
+    const status = launched[b.dataset.attack];
+    b.querySelector("small").textContent = status ? ` (${status})` : "";
+  });
+
+  const c = s.chaos;
+  const busy = ["injecting", "recovering"].includes(c.phase);
+  document.querySelectorAll("[data-failure]").forEach(b => { b.disabled = busy; });
+  $("failure-status").innerHTML = c.phase === "idle" ? "Nothing broken."
+    : busy ? `<strong>${esc(c.title)}:</strong> recovering for ${Math.round(c.elapsed_s || 0)} s`
+    : `<strong>${esc(c.title)}:</strong> ${c.recovered_after_s != null ? `recovered in ${c.recovered_after_s} s. ` : "did not recover. "}${esc(c.note)}`;
+
+  $("slos").innerHTML = SLOS.map(([key, name, fmt, ok, target]) => {
+    const v = s.numbers[key];
+    const known = v !== null && v !== undefined;
+    const cls = !known || !ok ? "" : ok(v) ? "met" : "missed";
+    return `<div class="slo ${cls}"><div class="name">${name}</div><div class="value">${known ? fmt(v) : "no data"}</div><div class="target">${target}</div></div>`;
+  }).join("");
+}
+
+function setup(s) {
+  $("attack-buttons").innerHTML = Object.entries(s.attacks).map(([k, v]) =>
+    `<button type="button" data-attack="${k}">Launch ${esc(v.toLowerCase())}<small></small></button>`).join("");
+  $("failure-buttons").innerHTML = Object.entries(s.failures).map(([k, v]) =>
+    `<button type="button" data-failure="${k}">${esc(v)}</button>`).join("");
+  $("links").innerHTML = "Look deeper: " + Object.entries(s.links).map(([k, v]) => `<a href="${v}" target="_blank" rel="noopener">${esc(k)}</a>`).join("");
+  document.querySelectorAll("[data-attack]").forEach(b => b.addEventListener("click", () => post(`/api/attack/${b.dataset.attack}`)));
+  document.querySelectorAll("[data-failure]").forEach(b => b.addEventListener("click", () => post(`/api/chaos/${b.dataset.failure}`).catch(alert)));
+}
+
+$("traffic-btn").addEventListener("click", () => post(`/api/traffic/${state && state.traffic.on ? "stop" : "start"}`));
+$("story-btn").addEventListener("click", () => post(`/api/story/${state && state.story.running ? "stop" : "start"}`));
+
+async function tick() {
+  try {
+    const s = await fetch("/api/state").then(r => r.json());
+    if (!state) setup(s);
+    state = s;
+    render(s);
+  } catch (e) {
+    $("feed-error").textContent = "The console cannot reach its server. Is make demo still running?";
+  }
+}
+drawStations();
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
