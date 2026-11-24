@@ -5,10 +5,10 @@ description = "Payments CDC lakehouse and real-time fraud feature platform"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-dependencies = ["payments-simulator", "payments-features", "payments-decision", "payments-rules", "payments-backtester", "payments-orchestration"]
+dependencies = ["payments-simulator", "payments-features", "payments-decision", "payments-rules", "payments-backtester", "payments-orchestration", "payments-demo"]
 
 [tool.uv.workspace]
-members = ["simulator", "features", "decision_service", "rules", "backtester", "orchestration"]
+members = ["simulator", "features", "decision_service", "rules", "backtester", "orchestration", "demo"]
 
 [tool.uv.sources]
 payments-simulator = { workspace = true }
@@ -17,6 +17,7 @@ payments-decision = { workspace = true }
 payments-rules = { workspace = true }
 payments-backtester = { workspace = true }
 payments-orchestration = { workspace = true }
+payments-demo = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -33,6 +34,7 @@ dev = [
     "trino==0.340.0",
     "duckdb==1.5.6",
     "pyiceberg==0.12.0",
+    "httpx==0.28.1",
 ]
 # Transformations on Trino (PRD: dbt Core + dbt-trino).
 dbt = [

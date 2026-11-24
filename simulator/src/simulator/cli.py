@@ -56,6 +56,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             rates=Rates().scaled(args.change_rate).with_fraud(args.fraud_rate),
             start=start,
         )
+        if args.attack:
+            for _ in range(10):  # a target is picked at random; retry if none fits right now
+                if engine.inject(args.attack):
+                    print(f"attack: {args.attack} scheduled", file=sys.stderr)
+                    break
+            else:
+                print(f"attack: no target for {args.attack} right now", file=sys.stderr)
         stop = StopAt(
             max_transactions=args.max_transactions,
             real_seconds=args.duration,
@@ -106,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     runp.add_argument("--duration", type=float, default=None, help="stop after N real seconds")
     runp.add_argument("--sim-days", type=float, default=None, help="stop after N simulated days")
     runp.add_argument("--sim-start", type=_parse_start, default=DEFAULT_SIM_START)
+    runp.add_argument(
+        "--attack",
+        choices=Engine.ATTACKS,
+        default=None,
+        help="also start one attack of this pattern at the beginning of the run (demo)",
+    )
     runp.set_defaults(func=cmd_run)
     return parser
 

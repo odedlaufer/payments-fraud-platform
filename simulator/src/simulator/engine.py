@@ -115,6 +115,17 @@ class Engine:
     def pending_actions(self) -> int:
         return len(self._queue)
 
+    ATTACKS = ("card_testing", "impossible_travel", "account_takeover", "merchant_bust_out")
+
+    def inject(self, pattern: str, at: datetime | None = None) -> bool:
+        """Starts one attack now (the demo console's buttons), on top of the random ones.
+        False when no suitable target exists at this moment (e.g. no card in a city)."""
+        if pattern not in self.ATTACKS:
+            raise ValueError(f"unknown attack {pattern!r}; one of {', '.join(self.ATTACKS)}")
+        before = len(self._queue)
+        getattr(self, f"_attack_{pattern}")(at or self.now)
+        return len(self._queue) > before
+
     def advance(self, to: datetime) -> None:
         """Runs everything that happens in (self.now, to], in simulated-time order."""
         if to <= self.now:
