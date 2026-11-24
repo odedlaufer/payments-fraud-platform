@@ -69,3 +69,8 @@ def test_docs_publishes_dbt_docs_and_the_landing_page() -> None:
         "cp docs/site/index.html site/index.html" in script
         and (ROOT / "docs/site/index.html").exists()
     )
+
+
+def test_the_rules_comment_warns_that_legitimate_payments_are_sampled() -> None:
+    """The fixture keeps 1 legitimate payment in 10: precision there is not the real precision."""
+    assert "one legitimate payment in ten" in runs("rules.yml")

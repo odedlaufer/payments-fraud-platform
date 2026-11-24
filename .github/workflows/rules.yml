@@ -65,6 +65,10 @@ jobs:
             echo "Live rules on \`${GITHUB_BASE_REF}\` (\`$base_live\`) against this pull request,"
             echo "on the recorded training set in \`tests/fixtures/training_set.parquet\`."
             echo
+            echo "> The recorded set keeps every fraud case but only one legitimate payment in ten,"
+            echo "> so recall is as on the full set, while precision, alert rate and \$ legit declined"
+            echo "> look better than they are. Compare the versions with each other, not with full-set numbers."
+            echo
             cat "$report"
           } > /tmp/comment.md
 
