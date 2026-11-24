@@ -4,7 +4,7 @@ SHELL := /bin/bash
 COMPOSE_PROFILES ?= core,lake,stream
 export COMPOSE_PROFILES
 
-.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance orchestrate dlq-replay contracts contracts-check lineage chaos demo backtest-fixture
+.PHONY: help setup lint fmt typecheck test check clean up down nuke ps logs health gate test-integration migrate migrate-status migrate-rollback new-migration connect-plugins connectors connector-status seed sim cdc-reconcile phase1-gate flink-check lock-jars gen-bronze flink-jobs bronze-reconcile chaos-ch1-bronze dbt-build dbt-run dbt-test silver-reconcile phase2-gate schema-evolve quick-check features-doc test-flink features-check online-check decisions-check detection-report detection-sim phase3-gate bronze-replay gen-decisions-bronze bronze-decisions-reconcile offline-features-check cdc-snapshot parity-report publish-training-set verify-training-sets backtest promote-rules protect-training-sets iceberg-maintenance orchestrate dlq-replay contracts contracts-check lineage chaos demo backtest-fixture slo-run slo-report present present-stop
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -232,3 +232,15 @@ demo: ## Demo console at http://localhost:8090: live decisions, attacks, failure
 
 backtest-fixture: ## Record a small training set for CI's rule backtests (tests/fixtures/training_set.parquet)
 	uv run python scripts/export_backtest_fixture.py
+
+slo-run: ## The SLO run: 49 simulated days (~8.2 h) with Dagster running; ARGS="--sim-days 1" to rehearse
+	uv run python scripts/slo_run.py $(ARGS)
+
+slo-report: ## Evidence for the latest SLO run in docs/slo-report.md
+	uv run python scripts/slo_report.py
+
+present: ## Everything up for a demo: other projects stopped only if you agree, healthy stack, Dagster, console
+	uv run python scripts/present.py
+
+present-stop: ## Stop Dagster and this project's containers (data kept); offer to restart other projects
+	uv run python scripts/present.py stop

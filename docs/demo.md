@@ -5,13 +5,13 @@ http://localhost:8090. Ten minutes is enough for the whole story.
 
 ## Before the meeting
 
-1. Stop other projects in Docker (`docker compose -p <name> stop`): the memory budget
-   assumes this stack has the Docker VM to itself. `make health` warns if one is running.
-2. `make up`, then `make health` until everything is healthy (a fresh Redis takes about
-   six minutes to rebuild).
-3. Stop Dagster if it is running: its schedules would build dbt while you break things.
-4. `make demo`. Keep Grafana (http://localhost:3030) and Marquez (http://localhost:3040)
-   open in other tabs for questions.
+1. `make present`. It checks Docker's memory, offers to stop other Docker projects (the memory
+   budget assumes this stack has the VM to itself), starts this project's containers, waits
+   until every service is healthy, starts Dagster in the background and opens the console.
+   The first start after a reboot takes a few minutes; a fresh Redis rebuilds in five to nine.
+2. Keep Grafana (http://localhost:3030) and Marquez (http://localhost:3040) open in other tabs
+   for questions.
+3. Afterwards: Ctrl-C closes the console; `make present-stop` stops everything, data kept.
 
 ## The story
 
